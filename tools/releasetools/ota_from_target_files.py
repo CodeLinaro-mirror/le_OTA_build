@@ -98,6 +98,12 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       instead of the binary in the build's target_files.  Use for
       development only.
 
+  -d  (--device_type) <type>
+      Specify mmc or mtd type device. mtd by default
+
+  -m  (--platform_mode) <mode>
+      Specify android or linux_embedded mode. android by default
+
   -t  (--worker_threads) <int>
       Specifies the number of worker-threads that will be used when
       generating patches for incremental updates (defaults to 3).
@@ -169,6 +175,8 @@ OPTIONS.full_radio = False
 OPTIONS.full_bootloader = False
 # Stash size cannot exceed cache_size * threshold.
 OPTIONS.cache_size = None
+OPTIONS.device_type = 'MTD'
+OPTIONS.platform_mode = 'android'
 OPTIONS.stash_threshold = 0.8
 OPTIONS.gen_verify = False
 OPTIONS.log_diff = None
@@ -433,6 +441,11 @@ def CopyPartitionFiles(itemset, input_zip, output_zip=None, substitute=None):
             data = substitute[fn]
           else:
             data = input_zip.read(info.filename)
+          if OPTIONS.platform_mode == "linux_embedded" and fn.endswith("/"):
+            #zip does not play nice with empty folders. Create dummy file to make sure folder is saved in archive.
+            info_dummy = copy.copy(info2)
+            info_dummy.filename = info_dummy.filename + "__emptyfile__"
+            output_zip.writestr(info_dummy,data)
           common.ZipWriteStr(output_zip, info2, data)
         if fn.endswith("/"):
           itemset.Get(fn[:-1], is_dir=True)
@@ -452,6 +465,10 @@ def SignOutput(temp_zip_name, output_zip_name):
 
 
 def AppendAssertions(script, info_dict, oem_dict=None):
+  if OPTIONS.platform_mode == "linux_embedded":
+    print "Skip assertions"
+    return
+
   oem_props = info_dict.get("oem_fingerprint_properties")
   if oem_props is None or len(oem_props) == 0:
     device = GetBuildProp("ro.product.device", info_dict)
@@ -601,7 +618,9 @@ def WriteFullOTAPackage(input_zip, output_zip):
       script=script,
       input_tmp=OPTIONS.input_tmp,
       metadata=metadata,
-      info_dict=OPTIONS.info_dict)
+      info_dict=OPTIONS.info_dict,
+      type=OPTIONS.device_type,
+      platform=OPTIONS.platform_mode)
 
   has_recovery_patch = HasRecoveryPatch(input_zip)
   block_based = OPTIONS.block_based and has_recovery_patch
@@ -804,6 +823,10 @@ def LoadPartitionFiles(z, partition):
 
 
 def GetBuildProp(prop, info_dict):
+  if OPTIONS.platform_mode == "linux_embedded":
+    #We dont need the properties from here. Returning dummy value
+    return "None"
+
   """Return the fingerprint of the build of a given target-files info_dict."""
   try:
     return info_dict.get("build.prop", {})[prop]
@@ -883,7 +906,9 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
       output_zip=output_zip,
       script=script,
       metadata=metadata,
-      info_dict=OPTIONS.source_info_dict)
+      info_dict=OPTIONS.source_info_dict,
+      type=OPTIONS.device_type,
+      platform=OPTIONS.platform_mode)
 
   source_fp = CalculateFingerprint(oem_props, oem_dict,
                                    OPTIONS.source_info_dict)
@@ -1178,7 +1203,9 @@ def WriteVerifyPackage(input_zip, output_zip):
       script=script,
       input_tmp=OPTIONS.input_tmp,
       metadata=metadata,
-      info_dict=OPTIONS.info_dict)
+      info_dict=OPTIONS.info_dict,
+      type=OPTIONS.device_type,
+      platform=OPTIONS.platform_mode)
 
   AppendAssertions(script, OPTIONS.info_dict, oem_dict)
 
@@ -1557,7 +1584,9 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   post_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.target_info_dict)
   pre_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.source_info_dict)
-  is_downgrade = long(post_timestamp) < long(pre_timestamp)
+  is_downgrade = False
+  if OPTIONS.platform_mode != "linux_embedded":
+     is_downgrade = long(post_timestamp) < long(pre_timestamp)
 
   if OPTIONS.downgrade:
     metadata["ota-downgrade"] = "yes"
@@ -1584,7 +1613,9 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
       output_zip=output_zip,
       script=script,
       metadata=metadata,
-      info_dict=OPTIONS.source_info_dict)
+      info_dict=OPTIONS.source_info_dict,
+      type=OPTIONS.device_type,
+      platform=OPTIONS.platform_mode)
 
   system_diff = FileDifference("system", source_zip, target_zip, output_zip)
   script.Mount("/system", recovery_mount_options)
@@ -1600,7 +1631,10 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                    OPTIONS.source_info_dict)
 
   if oem_props is None:
-    script.AssertSomeFingerprint(source_fp, target_fp)
+    if OPTIONS.platform_mode == "linux_embedded":
+       print "Skip AssertSomeFingerprint"
+    else:
+      script.AssertSomeFingerprint(source_fp, target_fp)
   else:
     script.AssertSomeThumbprint(
         GetBuildProp("ro.build.thumbprint", OPTIONS.target_info_dict),
@@ -1620,6 +1654,11 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
       "/tmp/boot.img", "boot.img", OPTIONS.target_tmp, "BOOT")
   updating_boot = (not OPTIONS.two_step and
                    (source_boot.data != target_boot.data))
+
+  if OPTIONS.platform_mode == "linux_embedded" and updating_boot and not OPTIONS.block_based:
+      include_full_boot = True;
+      print "boot image changed; including full boot image."
+      common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
 
   source_recovery = common.GetBootableImage(
       "/tmp/recovery.img", "recovery.img", OPTIONS.source_tmp, "RECOVERY",
@@ -1704,7 +1743,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     if vendor_diff.patch_list:
       size.append(vendor_diff.largest_source_size)
 
-  if updating_boot:
+  if updating_boot and not include_full_boot:
     d = common.Difference(target_boot, source_boot)
     _, _, d = d.ComputePatch()
     print "boot      target: %d  source: %d  diff: %d" % (
@@ -1769,20 +1808,25 @@ else
 
   if not OPTIONS.two_step:
     if updating_boot:
-      # Produce the boot image by applying a patch to the current
-      # contents of the boot partition, and write it back to the
-      # partition.
-      script.Print("Patching boot image...")
-      script.ApplyPatch("%s:%s:%d:%s:%d:%s"
+        if include_full_boot:
+          print "boot image changed; installing full."
+          script.Print("Installing full boot image...")
+          script.WriteRawImage("/boot", "boot.img")
+        else:
+          # Produce the boot image by applying a patch to the current
+          # contents of the boot partition, and write it back to the
+          # partition.
+          script.Print("Patching boot image...")
+          script.ApplyPatch("%s:%s:%d:%s:%d:%s"
                         % (boot_type, boot_device,
                            source_boot.size, source_boot.sha1,
                            target_boot.size, target_boot.sha1),
                         "-",
                         target_boot.size, target_boot.sha1,
                         source_boot.sha1, "patch/boot.img.p")
-      so_far += target_boot.size
-      script.SetProgress(so_far / total_patch_size)
-      print "boot image changed; including."
+          so_far += target_boot.size
+          script.SetProgress(so_far / total_patch_size)
+          print "boot image changed; including patch."
     else:
       print "boot image unchanged; skipping."
 
@@ -2000,6 +2044,11 @@ def main(argv):
       OPTIONS.updater_binary = a
     elif o in ("--no_fallback_to_full",):
       OPTIONS.fallback_to_full = False
+    elif o in ("-d", "--device_type"):
+      OPTIONS.device_type = a
+    elif o in ("-m", "--platform_mode"):
+      OPTIONS.platform_mode = a
+      print 'ota platform type %s ' % (OPTIONS.platform_mode)
     elif o == "--stash_threshold":
       try:
         OPTIONS.stash_threshold = float(a)
@@ -2019,7 +2068,7 @@ def main(argv):
     return True
 
   args = common.ParseOptions(argv, __doc__,
-                             extra_opts="b:k:i:d:wne:t:a:2o:",
+                             extra_opts="b:k:i:d:wne:t:a:2o:d:m:",
                              extra_long_opts=[
                                  "board_config=",
                                  "package_key=",
@@ -2041,6 +2090,8 @@ def main(argv):
                                  "verify",
                                  "no_fallback_to_full",
                                  "stash_threshold=",
+                                 "device_type=",
+                                 "platform_mode=",
                                  "gen_verify",
                                  "log_diff=",
                                  "payload_signer=",
@@ -2093,6 +2144,8 @@ def main(argv):
 
     print "done."
     return
+
+  print 'ota platform type %s ' % (OPTIONS.platform_mode)
 
   if OPTIONS.extra_script is not None:
     OPTIONS.extra_script = open(OPTIONS.extra_script).read()

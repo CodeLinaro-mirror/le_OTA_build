@@ -65,6 +65,7 @@ class Options(object):
     # Stash size cannot exceed cache_size * threshold.
     self.cache_size = None
     self.stash_threshold = 0.8
+    self.platform_mode = 'android'
 
 
 OPTIONS = Options()
@@ -305,6 +306,8 @@ def LoadRecoveryFSTab(read_helper, fstab_version, recovery_fstab_path,
       self.context = context
 
   try:
+    if OPTIONS.platform_mode == "linux_embedded":
+      recovery_fstab_path = "RECOVERY/recovery.fstab"
     data = read_helper(recovery_fstab_path)
   except KeyError:
     print "Warning: could not find {}".format(recovery_fstab_path)
@@ -343,7 +346,7 @@ def LoadRecoveryFSTab(read_helper, fstab_version, recovery_fstab_path,
 
       d[mount_point] = Partition(mount_point=mount_point, fs_type=pieces[1],
                                  device=pieces[2], length=length,
-                                 device2=device2)
+                                 device2=device2, context=None)
 
   elif fstab_version == 2:
     d = {}
@@ -896,6 +899,9 @@ def ParseOptions(argv,
     elif o in ("-x", "--extra"):
       key, value = a.split("=", 1)
       OPTIONS.extras[key] = value
+    elif o in ("-m", "--platform_mode"):
+      OPTIONS.platform_mode = a
+      print 'common: platform mode: %s ' % (OPTIONS.platform_mode)
     else:
       if extra_option_handler is None or not extra_option_handler(o, a):
         assert False, "unknown option \"%s\"" % (o,)
@@ -1599,7 +1605,9 @@ PARTITION_TYPES = {
     "ext4": "EMMC",
     "emmc": "EMMC",
     "f2fs": "EMMC",
-    "squashfs": "EMMC"
+    "squashfs": "EMMC",
+    "ubifs" : "UBI",
+    "ubi" : "MTD"
 }
 
 def GetTypeAndDevice(mount_point, info):

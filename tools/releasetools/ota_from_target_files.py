@@ -628,7 +628,7 @@ def WriteFullOTAPackage(input_zip, output_zip):
       platform=OPTIONS.platform_mode)
 
   has_recovery_patch = HasRecoveryPatch(input_zip)
-  block_based = OPTIONS.block_based and has_recovery_patch
+  block_based = OPTIONS.block_based
 
   metadata["ota-type"] = "BLOCK" if block_based else "FILE"
 

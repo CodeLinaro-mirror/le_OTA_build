@@ -884,7 +884,9 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   post_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.target_info_dict)
   pre_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.source_info_dict)
-  is_downgrade = long(post_timestamp) < long(pre_timestamp)
+  is_downgrade = False
+  if OPTIONS.platform_mode != "linux_embedded":
+      is_downgrade = long(post_timestamp) < long(pre_timestamp)
 
   if OPTIONS.downgrade:
     metadata["ota-downgrade"] = "yes"
@@ -1042,7 +1044,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
   device_specific.IncrementalOTA_VerifyBegin()
 
-  if oem_props is None:
+  '''if oem_props is None:
     # When blockimgdiff version is less than 3 (non-resumable block-based OTA),
     # patching on a device that's already on the target build will damage the
     # system. Because operations like move don't check the block state, they
@@ -1059,6 +1061,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
       script.AssertSomeThumbprint(
           GetBuildProp("ro.build.thumbprint", OPTIONS.target_info_dict),
           GetBuildProp("ro.build.thumbprint", OPTIONS.source_info_dict))
+  '''
+  print ("Skip AssertSomeFingerprint")
 
   # Check the required cache size (i.e. stashed blocks).
   size = []
@@ -1554,9 +1558,7 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
   target_has_recovery_patch = HasRecoveryPatch(target_zip)
   source_has_recovery_patch = HasRecoveryPatch(source_zip)
 
-  if (OPTIONS.block_based and
-      target_has_recovery_patch and
-      source_has_recovery_patch):
+  if (OPTIONS.block_based):
     return WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip)
 
   source_version = OPTIONS.source_info_dict["recovery_api_version"]

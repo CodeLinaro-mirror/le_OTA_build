@@ -628,7 +628,7 @@ def WriteFullOTAPackage(input_zip, output_zip):
       platform=OPTIONS.platform_mode)
 
   has_recovery_patch = HasRecoveryPatch(input_zip)
-  block_based = OPTIONS.block_based and has_recovery_patch
+  block_based = OPTIONS.block_based
 
   metadata["ota-type"] = "BLOCK" if block_based else "FILE"
 
@@ -884,7 +884,9 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   post_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.target_info_dict)
   pre_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.source_info_dict)
-  is_downgrade = long(post_timestamp) < long(pre_timestamp)
+  is_downgrade = False
+  if OPTIONS.platform_mode != "linux_embedded":
+      is_downgrade = long(post_timestamp) < long(pre_timestamp)
 
   if OPTIONS.downgrade:
     metadata["ota-downgrade"] = "yes"
@@ -1042,7 +1044,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
   device_specific.IncrementalOTA_VerifyBegin()
 
-  if oem_props is None:
+  '''if oem_props is None:
     # When blockimgdiff version is less than 3 (non-resumable block-based OTA),
     # patching on a device that's already on the target build will damage the
     # system. Because operations like move don't check the block state, they
@@ -1059,6 +1061,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
       script.AssertSomeThumbprint(
           GetBuildProp("ro.build.thumbprint", OPTIONS.target_info_dict),
           GetBuildProp("ro.build.thumbprint", OPTIONS.source_info_dict))
+  '''
+  print ("Skip AssertSomeFingerprint")
 
   # Check the required cache size (i.e. stashed blocks).
   size = []
@@ -1554,9 +1558,7 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
   target_has_recovery_patch = HasRecoveryPatch(target_zip)
   source_has_recovery_patch = HasRecoveryPatch(source_zip)
 
-  if (OPTIONS.block_based and
-      target_has_recovery_patch and
-      source_has_recovery_patch):
+  if (OPTIONS.block_based):
     return WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip)
 
   source_version = OPTIONS.source_info_dict["recovery_api_version"]
@@ -1999,6 +2001,34 @@ endif;
   metadata["ota-required-cache"] = str(script.required_cache)
   WriteMetadata(metadata, output_zip)
 
+def PackRecoveryImages(output_zip, info_dict):
+   # check if recovery partition upgrade is supported or not.
+   if info_dict.get("recovery_upgrade_supported", "0") == "0":
+     print("This target doesn't support recovery partitions' upgrade")
+     return
+
+   # Pack the recovery.img and the
+   # unsparsed recoveryfs.ext4 into update.zip .
+   # These images will be packed as a whole.
+   # We currently support recovery upgrade only for EMMC devices
+   if OPTIONS.device_type == "MMC":
+     target_recovery_img = common.GetBootableImage(
+                             "recovery.img", "boot.img",
+                             OPTIONS.target_tmp, "")
+     target_recoveryfs_img = common.GetBootableImage(
+                               "recoveryfs-unsparsed.img",
+                               "recovery-unsparsed.ext4",
+                               OPTIONS.target_tmp, "")
+
+     if not target_recovery_img or not target_recoveryfs_img:
+       print("recovery/recoveryfs images are missing from input zip")
+       raise AssertionError('Images essential for recovery upgrade are missing')
+       return
+
+     common.ZipWriteStr(output_zip, "recoveryupgrade/" + target_recovery_img.name,
+                        target_recovery_img.data)
+     common.ZipWriteStr(output_zip, "recoveryupgrade/" + target_recoveryfs_img.name,
+                        target_recoveryfs_img.data)
 
 def main(argv):
 
@@ -2219,6 +2249,9 @@ def main(argv):
   elif OPTIONS.incremental_source is None:
     WriteFullOTAPackage(input_zip, output_zip)
 
+    # Include recovery images also if applicable
+    PackRecoveryImages(output_zip, OPTIONS.info_dict)
+
   # Generate an incremental OTA. It will fall back to generate a full OTA on
   # failure unless no_fallback_to_full is specified.
   else:
@@ -2233,6 +2266,11 @@ def main(argv):
       common.DumpInfoDict(OPTIONS.source_info_dict)
     try:
       WriteIncrementalOTAPackage(input_zip, source_zip, output_zip)
+
+      # Include recovery images also if applicable
+      # Pass the target_info_dict for incremental OTA
+      PackRecoveryImages(output_zip, OPTIONS.target_info_dict)
+
       if OPTIONS.log_diff:
         out_file = open(OPTIONS.log_diff, 'w')
         import target_files_diff
@@ -2247,6 +2285,7 @@ def main(argv):
         print ("--- failed to build incremental; falling back to full ---")
       OPTIONS.incremental_source = None
       WriteFullOTAPackage(input_zip, output_zip)
+      PackRecoveryImages(output_zip, OPTIONS.info_dict)
 
   common.ZipClose(output_zip)
 

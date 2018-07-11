@@ -309,7 +309,7 @@ class EdifyGenerator(object):
     cmd = "".join(cmd)
     self.script.append(self.WordWrap(cmd))
 
-  def WriteRawImage(self, mount_point, fn, mapfn=None):
+  def WriteRawImage(self, mount_point, fn, mapfn=None, fn_size=None, fn_sha1=None):
     """Write the given package file into the partition for the given
     mount point."""
 
@@ -323,13 +323,26 @@ class EdifyGenerator(object):
             'write_raw_image(package_extract_file("%(fn)s"), "%(device)s");'
             % args)
       elif partition_type == "EMMC":
+        if common.OPTIONS.ab_ota_update:
+          if fn_sha1 and fn_size:
+            cmd = '('
+          else:
+            cmd = ''
         if mapfn:
           args["map"] = mapfn
-          self.script.append(
-              'package_extract_file("%(fn)s", "%(device)s", "%(map)s");' % args)
+          cmd += \
+              'package_extract_file("%(fn)s", "%(device)s", "%(map)s")' % args
         else:
-          self.script.append(
-              'package_extract_file("%(fn)s", "%(device)s");' % args)
+          cmd += 'package_extract_file("%(fn)s", "%(device)s")' % args
+        # In A/B, add an abort statement if extraction fails
+        if common.OPTIONS.ab_ota_update:
+          if fn_sha1 and fn_size:
+            cmd += (' && block_device_check("%s", "%d", "%s")) ||\n') \
+                % (args['device'], fn_size, fn_sha1)
+            cmd += '  abort("Failed to extract %(fn)s to %(device)s");' % args
+        else:
+          cmd += ';'
+        self.script.append(cmd)
       else:
         raise ValueError(
             "don't know how to write \"%s\" partitions" % p.fs_type)

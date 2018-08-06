@@ -66,6 +66,8 @@ class Options(object):
     self.cache_size = None
     self.stash_threshold = 0.8
     self.platform_mode = 'android'
+    # Assume non A/B by default
+    self.ab_ota_update = False
 
 
 OPTIONS = Options()
@@ -101,6 +103,7 @@ class ErrorCode(object):
   INSUFFICIENT_CACHE_SPACE = 3006
   TUNE_PARTITION_FAILURE = 3007
   APPLY_PATCH_FAILURE = 3008
+  SOURCE_COPY_FAILURE = 3009
 
 class ExternalError(RuntimeError):
   pass
@@ -1413,7 +1416,11 @@ class BlockDifference(object):
     if progress:
       script.ShowProgress(progress, 0)
     self._WriteUpdate(script, output_zip)
-    if OPTIONS.verify:
+
+    # On targets that support A/B boot, perform the
+    # post installation verification always since we
+    # can afford OTA to take a little longer to finish.
+    if OPTIONS.ab_ota_update or OPTIONS.verify:
       self._WritePostInstallVerifyScript(script)
 
   def WriteStrictVerifyScript(self, script):

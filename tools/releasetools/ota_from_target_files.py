@@ -146,6 +146,7 @@ import tempfile
 import zipfile
 
 import common
+from common import ErrorCode
 import edify_generator
 import sparse_img
 
@@ -717,6 +718,23 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
     system_tgt.ResetFileMap()
     system_diff = common.BlockDifference("system", system_tgt, src=None)
+
+    # On A/B targets, first copy all the blocksi from
+    # active to inactive slot for all A/B partitions
+    # In case of full OTA, do not copy system and boot
+    # partitions; these will be packed in update.zip anyways
+    if OPTIONS.ab_ota_update:
+      script.AppendExtra('');
+      script.AppendExtra('set_inactive_slot_as_unbootable() || '
+                         'abort("Failed to set inactive slot as unbootable!");');
+      script.AppendExtra('');
+      script.Print("Copying blocks of all A/B partitions "
+                   "(except system & boot) from active to inactive slots...")
+      script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
+                          'abort("E%d: Failed to copy all partitions from '
+                          'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script.AppendExtra('');
+
     system_diff.WriteScript(script, output_zip)
   else:
     script.FormatPartition("/system")
@@ -766,7 +784,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   common.ZipWriteStr(output_zip, "boot.img", boot_img.data)
 
   script.ShowProgress(0.05, 5)
-  script.WriteRawImage("/boot", "boot.img")
+  if OPTIONS.ab_ota_update:
+    script.WriteRawImage("/boot", "boot.img", None, boot_img.size, boot_img.sha1)
+  else:
+    script.WriteRawImage("/boot", "boot.img")
 
   script.ShowProgress(0.2, 10)
   device_specific.FullOTA_InstallEnd()
@@ -796,6 +817,12 @@ reboot_now("%(bcb_dev)s", "");
 endif;
 endif;
 """ % bcb_dev)
+
+  if OPTIONS.ab_ota_update:
+    script.AppendExtra('');
+    script.AppendExtra('set_inactive_slot_as_active() || '
+                       'abort("Failed to set inactive slot as active!");');
+    script.AppendExtra('');
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -1040,6 +1067,22 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
   script.Print("Target: %s" % CalculateFingerprint(
       oem_props, oem_dict, OPTIONS.target_info_dict))
 
+  if OPTIONS.ab_ota_update:
+    script.AppendExtra('');
+    script.AppendExtra('set_inactive_slot_as_unbootable() || '
+                       'abort("Failed to set inactive slot as unbootable!");');
+    script.AppendExtra('');
+    script.AppendExtra('if_copy_done_cookie_exists'
+                       '("/cache/recovery/AB_COPY_DONE") || (');
+    script.Print("Copying blocks of all A/B partitions "
+                 "from active to inactive slots...")
+    script.AppendExtra(('copy_all_source_partitions_except() || '
+                        'abort("E%d: Failed to copy all partitions from '
+                        'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+    script.AppendExtra(');');
+    script.AppendExtra('write_copy_done_cookie(/cache/recovery/AB_COPY_DONE);');
+    script.AppendExtra('');
+
   script.Print("Verifying current system...")
 
   device_specific.IncrementalOTA_VerifyBegin()
@@ -1171,6 +1214,13 @@ set_stage("%(bcb_dev)s", "");
 endif;
 endif;
 """ % bcb_dev)
+
+  if OPTIONS.ab_ota_update:
+    script.AppendExtra('');
+    script.AppendExtra('set_inactive_slot_as_active() || '
+                       'abort("Failed to set inactive slot as active!");');
+    script.AppendExtra('delete_copy_done_cookie("/cache/recovery/AB_COPY_DONE");');
+    script.AppendExtra('');
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source
@@ -2156,6 +2206,10 @@ def main(argv):
   common.ZipClose(input_zip)
 
   ab_update = OPTIONS.info_dict.get("ab_update") == "true"
+
+  OPTIONS.ab_ota_update = OPTIONS.info_dict.get("le_target_supports_ab", "0") == "1"
+  if OPTIONS.ab_ota_update:
+    print ("Generating A/B OTA upgrade package..");
 
   if ab_update:
     if OPTIONS.incremental_source is not None:

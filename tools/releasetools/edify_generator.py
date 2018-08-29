@@ -323,11 +323,10 @@ class EdifyGenerator(object):
             'write_raw_image(package_extract_file("%(fn)s"), "%(device)s");'
             % args)
       elif partition_type == "EMMC":
+        cmd = ''
         if common.OPTIONS.ab_ota_update:
           if fn_sha1 and fn_size:
-            cmd = '('
-          else:
-            cmd = ''
+            cmd += '('
         if mapfn:
           args["map"] = mapfn
           cmd += \

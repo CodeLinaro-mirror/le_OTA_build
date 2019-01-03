@@ -566,7 +566,14 @@ def GetImage(which, tmpdir, info_dict):
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
-  if os.path.exists(path) and os.path.exists(mappath):
+
+  partition = info_dict["fstab"]["/system"]
+  is_squashfs = partition.fs_type == "squashfs"
+  if is_squashfs:
+    # squashfs doesn't support file-block mapping
+    mappath = None
+
+  if os.path.exists(path) and (is_squashfs or os.path.exists(mappath)):
     print ("using %s.img from target-files" % (which,))
     # This is a 'new' target-files, which already has the image in it.
 

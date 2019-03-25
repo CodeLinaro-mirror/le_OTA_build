@@ -55,6 +55,20 @@
 // Note that the output will omit the trailing slash from
 // directories.
 
+typedef struct {
+        const char* path;
+        unsigned uid;
+        unsigned gid;
+        unsigned mode;
+        uint64_t capabilities;
+} fs_config_data_t;
+
+static fs_config_data_t* canned_data = NULL;
+static int canned_alloc = 0;
+static int canned_used = 0;
+
+static int hex_mode = 0;
+
 static struct selabel_handle* get_sehnd(const char* context_file) {
   struct selinux_opt seopts[] = { { SELABEL_OPT_PATH, context_file } };
   struct selabel_handle* sehnd = selabel_open(SELABEL_CTX_FILE, seopts, 1);
@@ -67,7 +81,91 @@ static struct selabel_handle* get_sehnd(const char* context_file) {
 }
 
 static void usage() {
-  fprintf(stderr, "Usage: fs_config [-D product_out_path] [-S context_file] [-C]\n");
+  fprintf(stderr, "Usage: fs_config [-p prefix] [-c fs_config_file] "
+      "[-D product_out_path] [-S context_file] [-C] "
+      "[-x fs_config_file_with_hex_mode]\n");
+}
+
+static int path_compare(const void* a, const void* b) {
+  return strcmp(((fs_config_data_t*)a)->path, ((fs_config_data_t*)b)->path);
+}
+
+static int load_fs_config(const char* fn, const char* prefix) {
+  FILE* f = fopen(fn, "r");
+  if (f == NULL) {
+    fprintf(stderr, "failed to open %s: %s\n", fn, strerror(errno));
+    return -1;
+  }
+
+  char line[2048];
+  while (fgets(line, sizeof(line), f)) {
+    while (canned_used >= canned_alloc) {
+      canned_alloc = (canned_alloc+1) * 2;
+      canned_data = (fs_config_data_t*)
+          realloc(canned_data, canned_alloc * sizeof(fs_config_data_t));
+    }
+    fs_config_data_t* p = canned_data + canned_used;
+
+    if (prefix) {
+      int prefix_len = strlen(prefix);
+      p->path = strdup(prefix);
+      const char *append_path = strtok(line, " ");
+      int append_path_len = strlen(append_path);
+      p->path = realloc(p->path, (prefix_len + append_path_len + 1));
+      strcat(p->path, append_path);
+    } else {
+      p->path = strdup(strtok(line, " "));
+    }
+    p->uid = atoi(strtok(NULL, " "));
+    p->gid = atoi(strtok(NULL, " "));
+
+    if (hex_mode)
+      p->mode = strtol(strtok(NULL, " "), NULL, 16);   // mode is in hex
+    else
+      p->mode = strtol(strtok(NULL, " "), NULL, 8);   // mode is in octal
+
+    p->capabilities = 0;
+
+    char* token = NULL;
+    do {
+      token = strtok(NULL, " ");
+      if (token && strncmp(token, "capabilities=", 13) == 0) {
+        p->capabilities = strtoll(token+13, NULL, 0);
+        break;
+      }
+    } while (token);
+
+    fprintf(stderr,"path:%s, uid:%d, gid:%d, mode:%o, capabilities:%x\n",
+            p->path, p->uid, p->gid, p->mode, p->capabilities);
+    canned_used++;
+  }
+
+  fclose(f);
+
+  qsort(canned_data, canned_used, sizeof(fs_config_data_t), path_compare);
+  fprintf(stderr,"loaded %d fs_config entries\n", canned_used);
+
+  return 0;
+}
+
+static int canned_fs_config(const char* path, int dir,
+    const char* target_out_path, unsigned* uid, unsigned* gid, unsigned* mode,
+    uint64_t* capabilities) {
+  fs_config_data_t key;
+  key.path = path;   // canned paths lack the leading '/'
+  fs_config_data_t* p = (fs_config_data_t*) bsearch(&key, canned_data,
+      canned_used, sizeof(fs_config_data_t), path_compare);
+  if (p == NULL) {
+    fprintf(stderr, "failed to find [%s] in canned fs_config\n", path);
+    return -1;
+  }
+  *uid = p->uid;
+  *gid = p->gid;
+  *mode = p->mode;
+  *capabilities = p->capabilities;
+  fprintf(stderr,"[%s] found in canned fs_config. uid=%d, gid=%d, mode=%o,"
+      "capabilities=%x\n", p->path, *uid, *gid, *mode, *capabilities);
+  return 0;
 }
 
 int main(int argc, char** argv) {
@@ -77,7 +175,11 @@ int main(int argc, char** argv) {
   struct selabel_handle* sehnd = NULL;
   int print_capabilities = 0;
   int opt;
-  while((opt = getopt(argc, argv, "CS:D:")) != -1) {
+  const char *fs_config_file = NULL;
+  const char *fs_config_prefix = NULL;
+  int entry_in_canned = 0;
+
+  while((opt = getopt(argc, argv, "c:p:CS:D:x:")) != -1) {
     switch(opt) {
     case 'C':
       print_capabilities = 1;
@@ -88,8 +190,26 @@ int main(int argc, char** argv) {
     case 'D':
       product_out_path = optarg;
       break;
+    case 'c':
+      fs_config_file = optarg;
+      break;
+    case 'p':
+      fs_config_prefix = optarg;
+      break;
+    case 'x':
+      fs_config_file = optarg;
+      hex_mode = 1;
+      break;
     default:
       usage();
+      exit(EXIT_FAILURE);
+    }
+  }
+
+  fprintf(stderr,"fs_config_file: %s\n", (fs_config_file)?fs_config_file:"(none)");
+  if (fs_config_file) {
+    if (load_fs_config(fs_config_file, fs_config_prefix) < 0) {
+      fprintf(stderr, "failed to load %s\n", fs_config_file);
       exit(EXIT_FAILURE);
     }
   }
@@ -125,47 +245,59 @@ int main(int argc, char** argv) {
 
     unsigned uid = 0, gid = 0, mode = 0;
     uint64_t capabilities;
-    fs_config(buffer, is_dir, product_out_path, &uid, &gid, &mode, &capabilities);
-    printf("%s %d %d %o", buffer, uid, gid, mode);
+    if (fs_config_file) {
+      entry_in_canned = !(canned_fs_config(buffer, is_dir, product_out_path,
+          &uid, &gid, &mode, &capabilities));
+    }
+
+    if (!entry_in_canned) {
+      fs_config(buffer, is_dir, product_out_path, &uid, &gid, &mode,
+          &capabilities);
+    }
+
+    // print only the last 12 bits of mode for chmod
+    printf("%s %d %d %o", buffer, uid, gid, (07777 & mode));
 
     if (sehnd != NULL) {
-      // if sehnd is not NULL,
-      // compute the file "mode" to be passed to
-      // selabel_lookup.
+      if (!entry_in_canned) {
+        // if sehnd is not NULL,
+        // compute the file "mode" to be passed to
+        // selabel_lookup.
 
-      // assuming that all filenames lead with "system/",
-      // ignore the first 6 chars from the given filename.
-      char* file_to_check = (char*) malloc(strlen(buffer+6) + \
-          strlen(product_out_path) + 1);
+        // assuming that all filenames lead with "system/",
+        // ignore the first 6 chars from the given filename.
+        char* file_to_check = (char*) malloc(strlen(buffer+6) + \
+        strlen(product_out_path) + 1);
 
-      if (file_to_check == NULL) {
-        perror("malloc");
-        printf("fs_config: malloc failed, exiting!\n");
-        exit(EXIT_FAILURE);
-      }
-      strcpy(file_to_check, product_out_path);
-      strcat(file_to_check, buffer+6);
+        if (file_to_check == NULL) {
+          perror("malloc");
+          printf("fs_config: malloc failed, exiting!\n");
+          exit(EXIT_FAILURE);
+        }
+        strcpy(file_to_check, product_out_path);
+        strcat(file_to_check, buffer+6);
 
-      // printf("checking file %s", file_to_check);
-      struct stat info;
-      if (lstat(file_to_check, &info) != 0) {
-        perror("lstat() error");
-        // incase of error, set mode to REG or DIR
-        mode = mode | (is_dir ? S_IFDIR : S_IFREG);
-      } else {
-        // printf("lstat() returned:");
-        // printf("   mode:   %08x\n",       info.st_mode);
-        // printf("    uid:   %d\n",   (int) info.st_uid);
-        // printf("    gid:   %d\n",   (int) info.st_gid);
-        if (S_ISLNK(info.st_mode)) {
-          // printf ("stat says link\n");
-          mode = mode | S_IFLNK;
-        } else if (S_ISDIR(info.st_mode)) {
-          // printf ("stat says dir\n");
-          mode = mode | S_IFDIR;
+        // printf("checking file %s", file_to_check);
+        struct stat info;
+        if (lstat(file_to_check, &info) != 0) {
+          perror("lstat() error");
+          // incase of error, set mode to REG or DIR
+          mode = mode | (is_dir ? S_IFDIR : S_IFREG);
         } else {
-          // printf ("stat says regular file\n");
-          mode = mode | S_IFREG;
+          // printf("lstat() returned:");
+          // printf("   mode:   %08x\n",       info.st_mode);
+          // printf("    uid:   %d\n",   (int) info.st_uid);
+          // printf("    gid:   %d\n",   (int) info.st_gid);
+          if (S_ISLNK(info.st_mode)) {
+            // printf ("stat says link\n");
+            mode = mode | S_IFLNK;
+          } else if (S_ISDIR(info.st_mode)) {
+            // printf ("stat says dir\n");
+            mode = mode | S_IFDIR;
+          } else {
+            // printf ("stat says regular file\n");
+            mode = mode | S_IFREG;
+          }
         }
       }
 

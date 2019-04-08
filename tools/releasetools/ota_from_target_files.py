@@ -1152,7 +1152,10 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
         "/boot", OPTIONS.source_info_dict)
     d = common.Difference(target_boot, source_boot)
     _, _, d = d.ComputePatch()
-    if d is None:
+
+    # MTD devices usually have low free space in cache,
+    # so disable incremental upgrade of boot.img on MTD
+    if d is None or OPTIONS.device_type == "MTD":
       include_full_boot = True
       common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
     else:

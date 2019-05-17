@@ -209,6 +209,9 @@ class SparseImage(object):
         if len(temp_list) == 1:
           # If no ':' are found, we are using an older version of make_ext4fs
           fn, ranges = line.split(None, 1)
+          if " " in ranges:
+            m, n = ranges.split(" ")
+            ranges = n
         else:
           fn, ranges = temp_list[0], temp_list[1]
         ranges = rangelib.RangeSet.parse(ranges)

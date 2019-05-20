@@ -104,31 +104,73 @@ static int load_fs_config(const char* fn, const char* prefix) {
       canned_data = (fs_config_data_t*)
           realloc(canned_data, canned_alloc * sizeof(fs_config_data_t));
     }
+    if (!canned_data) {
+      fprintf(stderr, "realloc failed, at line: %d\n", __LINE__);
+      return -1;
+    }
     fs_config_data_t* p = canned_data + canned_used;
+
+    char* saveptr = NULL; // saveptr to be passed to all subsequent strtok_r()
+
+    p->path = NULL;
 
     if (prefix) {
       int prefix_len = strlen(prefix);
-      p->path = strdup(prefix);
-      const char *append_path = strtok(line, " ");
+
+      const char *append_path = strtok_r(line, " ", &saveptr);
+      if (!append_path) {
+        fprintf(stderr, "no token returned from strtok_r, at line: %d\n", __LINE__);
+        return -1;
+      }
       int append_path_len = strlen(append_path);
-      p->path = realloc(p->path, (prefix_len + append_path_len + 1));
-      strcat(p->path, append_path);
+
+      p->path = malloc(prefix_len + append_path_len + 1);
+      if (!p->path) {
+        fprintf(stderr, "realloc failed, at line: %d\n", __LINE__);
+        return -1;
+      }
+      // concatenate prefix and the path
+      snprintf(p->path, prefix_len + append_path_len + 1, "%s%s", prefix, append_path);
     } else {
-      p->path = strdup(strtok(line, " "));
+      char *token = strtok_r(line, " ", &saveptr);
+      if (!token) {
+        fprintf(stderr, "no token returned from strtok_r, at line: %d\n", __LINE__);
+        return -1;
+      }
+
+      p->path = strdup(token);
+      if (!p->path) {
+        fprintf(stderr, "strdup failed, at line: %d\n", __LINE__);
+        return -1;
+      }
     }
-    p->uid = atoi(strtok(NULL, " "));
-    p->gid = atoi(strtok(NULL, " "));
+
+    char *uid_token = strtok_r(NULL, " ", &saveptr);
+    char *gid_token = strtok_r(NULL, " ", &saveptr);
+    if ((!uid_token) || (!gid_token)) {
+      fprintf(stderr, "no token returned from strtok_r, at line: %d\n", __LINE__);
+      return -1;
+    }
+
+    p->uid = atoi(uid_token);
+    p->gid = atoi(gid_token);
+
+    char *token = strtok_r(NULL, " ", &saveptr);
+    if (!token) {
+      fprintf(stderr, "no token returned from strtok_r, at line: %d\n", __LINE__);
+      return -1;
+    }
 
     if (hex_mode)
-      p->mode = strtol(strtok(NULL, " "), NULL, 16);   // mode is in hex
+      p->mode = strtol(token, NULL, 16);   // mode is in hex
     else
-      p->mode = strtol(strtok(NULL, " "), NULL, 8);   // mode is in octal
+      p->mode = strtol(token, NULL, 8);    // mode is in octal
 
     p->capabilities = 0;
 
-    char* token = NULL;
+    token = NULL;
     do {
-      token = strtok(NULL, " ");
+      token = strtok_r(NULL, " ", &saveptr);
       if (token && strncmp(token, "capabilities=", 13) == 0) {
         p->capabilities = strtoll(token+13, NULL, 0);
         break;
@@ -264,18 +306,8 @@ int main(int argc, char** argv) {
         // compute the file "mode" to be passed to
         // selabel_lookup.
 
-        // assuming that all filenames lead with "system/",
-        // ignore the first 6 chars from the given filename.
-        char* file_to_check = (char*) malloc(strlen(buffer+6) + \
-        strlen(product_out_path) + 1);
-
-        if (file_to_check == NULL) {
-          perror("malloc");
-          printf("fs_config: malloc failed, exiting!\n");
-          exit(EXIT_FAILURE);
-        }
-        strcpy(file_to_check, product_out_path);
-        strcat(file_to_check, buffer+6);
+        char file_to_check[4096];
+        snprintf(file_to_check, sizeof(file_to_check), "%s%s", product_out_path, buffer+6);
 
         // printf("checking file %s", file_to_check);
         struct stat info;
@@ -313,9 +345,7 @@ int main(int argc, char** argv) {
         exit(EXIT_FAILURE);
       }
 
-      full_name[0] = '/';
-      strncpy(full_name + 1, buffer, full_name_size - 1);
-      full_name[full_name_size - 1] = '\0';
+      snprintf(full_name, full_name_size, "/%s", buffer);
 
       char* secontext;
       if (selabel_lookup(sehnd, &secontext, full_name, mode)) {

@@ -1420,11 +1420,12 @@ class BlockDifference(object):
       script.ShowProgress(progress, 0)
     self._WriteUpdate(script, output_zip)
 
-    # On targets that support A/B boot, perform the
-    # post installation verification always since we
-    # can afford OTA to take a little longer to finish.
-    if OPTIONS.ab_ota_update or OPTIONS.verify:
-      self._WritePostInstallVerifyScript(script)
+    if not OPTIONS.device_type == "MTD":
+      # On targets that support A/B boot, perform the
+      # post installation verification always since we
+      # can afford OTA to take a little longer to finish.
+      if OPTIONS.ab_ota_update or OPTIONS.verify:
+        self._WritePostInstallVerifyScript(script)
 
   def WriteStrictVerifyScript(self, script):
     """Verify all the blocks in the care_map, including clobbered blocks.

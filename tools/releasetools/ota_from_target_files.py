@@ -183,6 +183,7 @@ OPTIONS.gen_verify = False
 OPTIONS.log_diff = None
 OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
+OPTIONS.system_mount_path = '/system'
 
 def MostPopularKey(d, default):
   """Given a dict, return the key corresponding to the largest

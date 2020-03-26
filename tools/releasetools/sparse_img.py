@@ -205,12 +205,15 @@ class SparseImage(object):
 
     with open(fn) as f:
       for line in f:
-        temp_list = line.split(':', 1)
+        #temp_list = line.split(':', 1)
+        temp_list = line.split(':')
         if len(temp_list) == 1:
           # If no ':' are found, we are using an older version of make_ext4fs
           fn, ranges = line.split(None, 1)
         else:
-          fn, ranges = temp_list[0], temp_list[1]
+          #fn, ranges = temp_list[0], temp_list[1]
+          ranges = temp_list[-1]
+          fn = line.rstrip(":"+ranges)
         ranges = rangelib.RangeSet.parse(ranges)
         out[fn] = ranges
         assert ranges.size() == ranges.intersect(remaining).size()

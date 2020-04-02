@@ -398,7 +398,7 @@ def LoadRecoveryFSTab(read_helper, fstab_version, recovery_fstab_path,
   # at /.
   if system_root_image:
     assert not d.has_key(OPTIONS.system_mount_path) and d.has_key("/")
-    d[OPTIONS.info_dict.system_mount_path] = d["/"]
+    d[OPTIONS.system_mount_path] = d["/"]
   return d
 
 
@@ -1677,8 +1677,8 @@ def MakeRecoveryPatch(input_dir, output_sink, recovery_img, boot_img,
       diff_program.append("-b")
       diff_program.append(path)
       bonus_args = "-b "
-      bonus_args += info_dict.system_mount_path
-      if info_dict.system_mount_path.endswith('/'):
+      bonus_args += OPTIONS.system_mount_path
+      if OPTIONS.system_mount_path.endswith('/'):
         bonus_args += "etc/recovery-resource.dat"
       else:
         bonus_args += "/etc/recovery-resource.dat"
@@ -1697,8 +1697,8 @@ def MakeRecoveryPatch(input_dir, output_sink, recovery_img, boot_img,
   except KeyError:
     return
 
-  mount_point = info_dict.system_mount_path
-  if not info_dict.system_mount_path.endswith('/'):
+  mount_point = OPTIONS.system_mount_path
+  if not OPTIONS.system_mount_path.endswith('/'):
     mount_point += '/'
 
   if full_recovery_image:

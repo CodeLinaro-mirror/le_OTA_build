@@ -183,6 +183,7 @@ OPTIONS.gen_verify = False
 OPTIONS.log_diff = None
 OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
+OPTIONS.system_mount_path = '/system'
 
 def MostPopularKey(d, default):
   """Given a dict, return the key corresponding to the largest
@@ -567,7 +568,7 @@ def GetImage(which, tmpdir, info_dict):
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
 
-  partition = info_dict["fstab"]["/system"]
+  partition = info_dict["fstab"][OPTIONS.system_mount_path]
   is_squashfs = partition.fs_type == "squashfs"
   if is_squashfs:
     # squashfs doesn't support file-block mapping
@@ -729,7 +730,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     # writes incrementals to do it.
     system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
     system_tgt.ResetFileMap()
-    system_diff = common.BlockDifference("system", system_tgt, src=None)
+    system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
 
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
@@ -749,11 +750,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     system_diff.WriteScript(script, output_zip)
   else:
-    script.FormatPartition("/system")
-    script.Mount("/system", recovery_mount_options)
+    script.FormatPartition(OPTIONS.system_mount_path)
+    script.Mount(OPTIONS.system_mount_path, recovery_mount_options)
     if not has_recovery_patch:
-      script.UnpackPackageDir("recovery", "/system")
-    script.UnpackPackageDir("system", "/system")
+      script.UnpackPackageDir("recovery", OPTIONS.system_mount_path)
+    script.UnpackPackageDir("system", OPTIONS.system_mount_path)
 
     # For file-based Full-OTA, /dev is formatted and then regular files are
     # populated in the same. But LE targets may use 'makedevs' utility to
@@ -763,18 +764,31 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     # that is packed in META/.
     device_table_path = os.path.join(OPTIONS.input_tmp, "META", "device_table.txt")
     if os.path.exists(device_table_path):
-      # delete everything in /system/dev and create /system/dev
-      script.AppendExtra('delete_recursive("/system/dev");')
-      script.AppendExtra('run_program("/bin/mkdir", "/system/dev");')
+      delete_recursive = 'delete_recursive("'
+      mkdir = 'run_program("/bin/mkdir", "'
+      delete_recursive += OPTIONS.system_mount_path
+      mkdir += OPTIONS.system_mount_path
+      if OPTIONS.system_mount_path.endswith('/'):
+        delete_recursive += 'dev");'
+        mkdir += 'dev");'
+      else:
+        delete_recursive += '/dev");'
+        mkdir += '/dev");'
+
+      # delete everything in /dev and create /dev
+      script.AppendExtra(delete_recursive)
+      script.AppendExtra(mkdir)
       # pack the device_table into update package
       device_table_data = input_zip.read("META/device_table.txt");
       common.ZipWriteStr(output_zip, "device_table.txt", device_table_data)
       # extract the packed device_table to /tmp
       script.AppendExtra('package_extract_file("device_table.txt",'
                          '"/tmp/device_table.txt");')
-      # run 'makedevs' using the device_table, with rootdir as '/system'
-      script.AppendExtra('run_program("/sbin/makedevs", "-d",'
-                         '"/tmp/device_table.txt", "/system");')
+      # run 'makedevs' using the device_table, with rootdir as '/'
+      makedevs = 'run_program("/sbin/makedevs", "-d","/tmp/device_table.txt", "'
+      makedevs += OPTIONS.system_mount_path
+      makedevs += '");'
+      script.AppendExtra(makedevs)
 
     symlinks = CopyPartitionFiles(system_items, input_zip, output_zip)
     script.MakeSymlinks(symlinks)
@@ -1012,16 +1026,16 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   # Check the first block of the source system partition for remount R/W only
   # if the filesystem is ext4.
-  system_src_partition = OPTIONS.source_info_dict["fstab"]["/system"]
+  system_src_partition = OPTIONS.source_info_dict["fstab"][OPTIONS.system_mount_path]
   check_first_block = system_src_partition.fs_type == "ext4"
   # Disable using imgdiff for squashfs. 'imgdiff -z' expects input files to be
   # in zip formats. However with squashfs, a) all files are compressed in LZ4;
   # b) the blocks listed in block map may not contain all the bytes for a given
   # file (because they're rounded to be 4K-aligned).
-  system_tgt_partition = OPTIONS.target_info_dict["fstab"]["/system"]
+  system_tgt_partition = OPTIONS.target_info_dict["fstab"][OPTIONS.system_mount_path]
   disable_imgdiff = (system_src_partition.fs_type == "squashfs" or
                      system_tgt_partition.fs_type == "squashfs")
-  system_diff = common.BlockDifference("system", system_tgt, system_src,
+  system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, system_src,
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
@@ -1329,7 +1343,7 @@ def WriteVerifyPackage(input_zip, output_zip):
 
   system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
   system_tgt.ResetFileMap()
-  system_diff = common.BlockDifference("system", system_tgt, src=None)
+  system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
   system_diff.WriteStrictVerifyScript(script)
 
   if HasVendorPartition(input_zip):
@@ -1632,7 +1646,14 @@ class FileDifference(object):
       tf, sf, _, _ = item
       script.ApplyPatch("/"+sf.name, "-", tf.size, tf.sha1, sf.sha1,
                         "patch/" + sf.name + ".p")
-    script.SetPermissions("/system/build.prop", 0, 0, 0o644, None, None)
+
+    build_prop = OPTIONS.system_mount_path
+    if OPTIONS.system_mount_path.endswith('/'):
+      build_prop += 'build.prop'
+    else:
+      build_prop += '/build.prop'
+
+    script.SetPermissions(build_prop, 0, 0, 0o644, None, None)
 
   def EmitRenames(self, script):
     if len(self.renames) > 0:
@@ -1713,7 +1734,7 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
       platform=OPTIONS.platform_mode)
 
   system_diff = FileDifference("system", source_zip, target_zip, output_zip)
-  script.Mount("/system", recovery_mount_options)
+  script.Mount(OPTIONS.system_mount_path, recovery_mount_options)
   if HasVendorPartition(target_zip):
     vendor_diff = FileDifference("vendor", source_zip, target_zip, output_zip)
     script.Mount("/vendor", recovery_mount_options)
@@ -1884,7 +1905,12 @@ else
     print ("writing full boot image (forced by two-step mode)")
 
   script.Print("Removing unneeded files...")
-  system_diff.RemoveUnneededFiles(script, ("/system/recovery.img",))
+  unneeded_recovery = OPTIONS.system_mount_path
+  if OPTIONS.system_mount_path.endswith('/'):
+    unneeded_recovery += 'recovery.img'
+  else:
+    unneeded_recovery += '/recovery.img'
+  system_diff.RemoveUnneededFiles(script, (unneeded_recovery,))
   if vendor_diff:
     vendor_diff.RemoveUnneededFiles(script)
 
@@ -1946,9 +1972,19 @@ else
 
       common.MakeRecoveryPatch(OPTIONS.target_tmp, output_sink,
                                target_recovery, target_boot)
-      script.DeleteFiles(["/system/recovery-from-boot.p",
-                          "/system/etc/recovery.img",
-                          "/system/etc/install-recovery.sh"])
+      recovery_from_boot = recovery = install_recovery = OPTIONS.system_mount_path
+      if OPTIONS.system_mount_path.endswith('/'):
+        recovery_from_boot += 'recovery-from-boot.p'
+        recovery += 'etc/recovery.img'
+        install_recovery += 'etc/install-recovery.sh'
+      else:
+        recovery_from_boot += '/recovery-from-boot.p'
+        recovery += '/etc/recovery.img'
+        install_recovery += '/etc/install-recovery.sh'
+
+      script.DeleteFiles([recovery_from_boot,
+                          recovery,
+                          install_recovery])
     print ("recovery image changed; including as patch from boot.")
   else:
     print ("recovery image unchanged; skipping.")
@@ -2011,14 +2047,14 @@ else
 
   if system_diff.verbatim_targets:
     script.Print("Unpacking new system files...")
-    script.UnpackPackageDir("system", "/system")
+    script.UnpackPackageDir("system", OPTIONS.system_mount_path)
   if vendor_diff and vendor_diff.verbatim_targets:
     script.Print("Unpacking new vendor files...")
     script.UnpackPackageDir("vendor", "/vendor")
 
   if updating_recovery and not target_has_recovery_patch:
     script.Print("Unpacking new recovery...")
-    script.UnpackPackageDir("recovery", "/system")
+    script.UnpackPackageDir("recovery", OPTIONS.system_mount_path)
 
   system_diff.EmitRenames(script)
   if vendor_diff:
@@ -2069,8 +2105,8 @@ endif;
 
   if OPTIONS.verify and system_diff:
     script.Print("Remounting and verifying system partition files...")
-    script.Unmount("/system")
-    script.Mount("/system", recovery_mount_options)
+    script.Unmount(OPTIONS.system_mount_path)
+    script.Mount(OPTIONS.system_mount_path, recovery_mount_options)
     system_diff.EmitExplicitTargetVerification(script)
 
   if OPTIONS.verify and vendor_diff:
@@ -2186,6 +2222,8 @@ def main(argv):
       OPTIONS.payload_signer = a
     elif o == "--payload_signer_args":
       OPTIONS.payload_signer_args = shlex.split(a)
+    elif o == "--system_mount_path":
+      OPTIONS.system_mount_path = a
     else:
       return False
     return True
@@ -2219,6 +2257,7 @@ def main(argv):
                                  "log_diff=",
                                  "payload_signer=",
                                  "payload_signer_args=",
+                                 "system_mount_path="
                              ], extra_option_handler=option_handler)
 
   if len(args) != 2:

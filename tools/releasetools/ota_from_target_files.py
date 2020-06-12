@@ -92,6 +92,9 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       Generate a block-based OTA if possible.  Will fall back to a
       file-based OTA if the target_files is older and doesn't support
       block-based OTAs.
+      
+  --ubuntu
+      When generate the OTA for ubuntu, it is needed to add this value. 
 
   -b  (--binary)  <file>
       Use the given binary as the update-binary in the output package,
@@ -168,6 +171,7 @@ if OPTIONS.worker_threads == 0:
 OPTIONS.two_step = False
 OPTIONS.no_signing = False
 OPTIONS.block_based = False
+OPTIONS.ubuntu_based = False
 OPTIONS.updater_binary = None
 OPTIONS.oem_source = None
 OPTIONS.oem_no_mount = False
@@ -728,9 +732,13 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     # image.  This has the effect of writing new data from the package
     # to the entire partition, but lets us reuse the updater code that
     # writes incrementals to do it.
-    system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
-    system_tgt.ResetFileMap()
-    system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
+    
+    # If Full OTA is for ubunt, the Full OTA will not upgrade
+    # the system.img
+    if not OPTIONS.ubuntu_based:
+        system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
+        system_tgt.ResetFileMap()
+        system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
 
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
@@ -748,7 +756,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                           'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
       script.AppendExtra('');
 
-    system_diff.WriteScript(script, output_zip)
+    if not OPTIONS.ubuntu_based:
+        system_diff.WriteScript(script, output_zip)
+
   else:
     script.FormatPartition(OPTIONS.system_mount_path)
     script.Mount(OPTIONS.system_mount_path, recovery_mount_options)
@@ -2199,6 +2209,8 @@ def main(argv):
       OPTIONS.verify = True
     elif o == "--block":
       OPTIONS.block_based = True
+    elif o == "--ubuntu":
+      OPTIONS.ubuntu_based = True
     elif o in ("-b", "--binary"):
       OPTIONS.updater_binary = a
     elif o in ("--no_fallback_to_full",):
@@ -2245,6 +2257,7 @@ def main(argv):
                                  "two_step",
                                  "no_signing",
                                  "block",
+                                 "ubuntu",
                                  "binary=",
                                  "oem_settings=",
                                  "oem_no_mount",

@@ -2142,9 +2142,9 @@ def PackRecoveryImages(output_zip, info_dict):
      return
 
    # Pack the recovery.img and the
-   # unsparsed recoveryfs.ext4 into update.zip .
+   # unsparsed recoveryfs.ext4 or recoveryfs.ubi into update.zip .
    # These images will be packed as a whole.
-   # We currently support recovery upgrade only for EMMC devices
+   # We currently support recovery upgrade for EMMC and NAND devices
    if OPTIONS.device_type == "MMC":
      target_recovery_img = common.GetBootableImage(
                              "recovery.img", "boot.img",
@@ -2162,6 +2162,25 @@ def PackRecoveryImages(output_zip, info_dict):
      common.ZipWriteStr(output_zip, "recoveryupgrade/" + target_recovery_img.name,
                         target_recovery_img.data)
      common.ZipWriteStr(output_zip, "recoveryupgrade/" + target_recoveryfs_img.name,
+                        target_recoveryfs_img.data)
+
+   if OPTIONS.device_type == "MTD":
+     target_recovery_img = common.GetBootableImage(
+                             "boot.img", "boot.img",
+                             OPTIONS.target_tmp, "")
+     target_recoveryfs_img = common.GetBootableImage(
+                               "recoveryfs.ubi",
+                               "recoveryfs.ubi",
+                               OPTIONS.target_tmp, "")
+
+     if not target_recovery_img or not target_recoveryfs_img:
+       print("recovery/recoveryfs images are missing from input zip")
+       raise AssertionError('Images essential for recovery upgrade are missing')
+       return
+
+     # write only the recoveryfs image
+     # since the boot.img will already be there in update.zip
+     common.ZipWriteStr(output_zip, target_recoveryfs_img.name,
                         target_recoveryfs_img.data)
 
 def main(argv):

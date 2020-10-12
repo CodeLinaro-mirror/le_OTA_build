@@ -760,8 +760,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         script.AppendExtra('');
         script.AppendExtra('scan_mtd_partitions() || '
                          'abort("Failed to scan mtd partitions!");');
-        script.AppendExtra('copy_active_nonhlos_to_inactive_nonhlos() || '
-                           'abort("Failed to copy active nonhlos to inactive nonhlos!");');
+        # For full ota : added for modem that has volume a/b and has name nonhlos-fs
+        # script.AppendExtra('copy_active_nonhlos_to_inactive_nonhlos() || '
+                           # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
         script.AppendExtra('');
 
     if not OPTIONS.ubuntu_based:
@@ -1153,8 +1154,9 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                          'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('copy_active_rootfs_to_inactive_rootfs() || '
                          'abort("Failed to copy active roots to inactive rootfs!");');
-      script.AppendExtra('copy_active_nonhlos_to_inactive_nonhlos() || '
-                         'abort("Failed to copy active nonhlos to inactive nonhlos!");');
+      # For incremental ota : added for modem that has volume a/b and has name nonhlos-fs
+      # script.AppendExtra('copy_active_nonhlos_to_inactive_nonhlos() || '
+                         # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
       script.AppendExtra('copy_boot_to_inactive_slot() || '
                          'abort("Failed to copy boot partition to inactive slot!");');
       script.AppendExtra('');

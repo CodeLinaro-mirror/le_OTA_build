@@ -741,12 +741,21 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       script.AppendExtra('set_inactive_slot_as_unbootable() || '
                          'abort("Failed to set inactive slot as unbootable!");');
       script.AppendExtra('');
-      script.Print("Copying blocks of all A/B partitions "
-                   "(except system & boot) from active to inactive slots...")
-      script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
-                          'abort("E%d: Failed to copy all partitions from '
-                          'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-      script.AppendExtra('');
+      if not OPTIONS.device_type == "MTD":
+        script.Print("Copying blocks of all A/B partitions "
+                     "(except system & boot) from active to inactive slots...")
+        script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+        script.AppendExtra('');
+      if OPTIONS.device_type == "MTD":
+        script.AppendExtra('');
+        script.AppendExtra('scan_mtd_partitions() || '
+                         'abort("Failed to scan mtd partitions!");');
+        # For full ota : added for modem that has volume a/b and has name nonhlos-fs
+        # script.AppendExtra('copy_active_nonhlos_to_inactive_nonhlos() || '
+                           # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
+        script.AppendExtra('');
 
     system_diff.WriteScript(script, output_zip)
   else:
@@ -1125,9 +1134,22 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                        '("/cache/recovery/AB_COPY_DONE") || (');
     script.Print("Copying blocks of all A/B partitions "
                  "from active to inactive slots...")
-    script.AppendExtra(('copy_all_source_partitions_except() || '
-                        'abort("E%d: Failed to copy all partitions from '
-                        'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+    if not OPTIONS.device_type == "MTD":
+      script.AppendExtra(('copy_all_source_partitions_except() || '
+                          'abort("E%d: Failed to copy all partitions from '
+                          'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+    if OPTIONS.device_type == "MTD":
+      script.AppendExtra('');
+      script.AppendExtra('scan_mtd_partitions() || '
+                         'abort("Failed to scan mtd partitions!");');
+      script.AppendExtra('copy_active_rootfs_to_inactive_rootfs() || '
+                         'abort("Failed to copy active roots to inactive rootfs!");');
+      # For incremental ota : added for modem that has volume a/b and has name nonhlos-fs
+      # script.AppendExtra('copy_active_nonhlos_to_inactive_nonhlos() || '
+                         # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
+      script.AppendExtra('copy_boot_to_inactive_slot() || '
+                         'abort("Failed to copy boot partition to inactive slot!");');
+      script.AppendExtra('');
     script.AppendExtra(');');
     script.AppendExtra('write_copy_done_cookie(/cache/recovery/AB_COPY_DONE);');
     script.AppendExtra('');

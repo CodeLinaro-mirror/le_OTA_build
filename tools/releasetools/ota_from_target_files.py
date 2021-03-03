@@ -538,6 +538,12 @@ def HasRecoveryPatch(target_files_zip):
   return ("SYSTEM/recovery-from-boot.p" in namelist or
           "SYSTEM/etc/recovery.img" in namelist)
 
+# check for an empty file META/boot-incremetal in target.zip
+# if this file is present, incremental boot image is supported in build
+def HasIncrementalBoot(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("META/boot-incremetal" in namelist)
+
 def HasVendorPartition(target_files_zip):
   try:
     target_files_zip.getinfo("VENDOR/")
@@ -1201,9 +1207,13 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     d = common.Difference(target_boot, source_boot)
     _, _, d = d.ComputePatch()
 
+    # check if incremental boot is enabled
+    has_incremental_boot = HasIncrementalBoot(source_zip)
+    print (" has_incremental_boot: %s ") % (has_incremental_boot)
+
     # MTD devices usually have low free space in cache,
     # so disable incremental upgrade of boot.img on MTD
-    if d is None or OPTIONS.device_type == "MTD":
+    if d is None or ((OPTIONS.device_type == "MTD") and not has_incremental_boot):
       include_full_boot = True
       common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
     else:

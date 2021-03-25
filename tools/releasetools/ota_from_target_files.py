@@ -1,5 +1,8 @@
 #!/usr/bin/env python
 #
+# Copyright (c) 2021 The Linux Foundation. All rights reserved.
+# Not a contribution.
+#
 # Copyright (C) 2008 The Android Open Source Project
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -542,7 +545,30 @@ def HasRecoveryPatch(target_files_zip):
 # if this file is present, incremental boot image is supported in build
 def HasIncrementalBoot(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
-  return ("META/boot-incremetal" in namelist)
+  if ("META/boot-incremetal" in namelist):
+    return True
+  print (" boot-incr not true check for nad_support ");
+  dict = common.LoadInfoDict(target_files_zip)
+  if (dict.get("le_target_supports_nad", "0") == "1"):
+    print (" nad_support is True ");
+    return True
+  print (" nad_support is False ");
+  return False
+
+# if this file is present, incremental boot image is supported in build
+def HasModemSquashImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/modem.img" in namelist)
+
+# enable nonhlos.ubifs full update on firmware volume
+def HasModemUbifsImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/modem.ubifs" in namelist)
+
+# if this file is present, recoveryfs will be included in update package in mirror flow
+def HasRecoveryVolume(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/recoveryfs.img" in namelist)
 
 def HasVendorPartition(target_files_zip):
   try:
@@ -573,7 +599,7 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  assert which in ("system", "vendor")
+  assert which in ("system", "vendor", "modem", "recoveryfs")
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
@@ -730,6 +756,21 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
 
+  if HasModemSquashImage(input_zip):
+    modem_squash_vol_update = True
+  else:
+    modem_squash_vol_update = False
+
+  if HasModemUbifsImage(input_zip):
+    modem_ubifs_vol_update = True
+  else:
+    modem_ubifs_vol_update = False
+
+  if HasRecoveryVolume(input_zip):
+    is_recoveryfs_volume_update = True
+  else:
+    is_recoveryfs_volume_update = False
+
   system_items = ItemSet("system", "META/filesystem_config.txt")
   script.ShowProgress(system_progress, 0)
 
@@ -745,6 +786,20 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
+
+        # enable full update for modem with squashfs image
+        if modem_squash_vol_update:
+          print (" generating modem update also ")
+          modem_tgt = GetImage("modem", OPTIONS.input_tmp, OPTIONS.info_dict)
+          modem_tgt.ResetFileMap()
+          modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, src=None)
+
+        # enable full update for recoveryfs with squashfs image
+        if is_recoveryfs_volume_update:
+          print (" generating modem update also ")
+          recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.input_tmp, OPTIONS.info_dict)
+          recoveryfs_tgt.ResetFileMap()
+          recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, src=None)
 
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
@@ -771,8 +826,32 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                            # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
         script.AppendExtra('');
 
+    if OPTIONS.nad_update:
+      script.AppendExtra('');
+      script.AppendExtra('scan_mtd_partitions() || '
+                     'abort("Failed to scan mtd partitions!");');
+      script.AppendExtra('');
+      script.Print("Copying  system  "
+                   " from active to inactive slots...")
+      script.AppendExtra('copy_volume_active_to_inactive("system") || '
+                          'abort("Failed to copy active sytem volume to inactive system volume!");');
+      #script.Print("Copying  firmware  "
+      #             " from active to inactive slots...")
+      #script.AppendExtra('copy_volume_active_to_inactive("firmware") || '
+      #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
+      script.AppendExtra('');
+      script.Print("Copying  all raw partition  "
+                  " from active to inactive slots...")
+      script.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
+                         'abort("E%d: Failed to copy boot '
+                         'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script.AppendExtra('');
+
+
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
+        if modem_squash_vol_update:
+          modem_diff.WriteScript(script, output_zip)
 
   else:
     script.FormatPartition(OPTIONS.system_mount_path)
@@ -821,6 +900,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   boot_img = common.GetBootableImage(
       "boot.img", "boot.img", OPTIONS.input_tmp, "BOOT")
 
+  if modem_ubifs_vol_update:
+    modem_ubifs = common.GetBootableImage(
+      "modem.ubifs", "modem.ubifs", OPTIONS.input_tmp, "IMAGES")
+
   if not block_based:
     def output_sink(fn, data):
       common.ZipWriteStr(output_zip, "recovery/" + fn, data)
@@ -854,6 +937,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   common.CheckSize(boot_img.data, "boot.img", OPTIONS.info_dict)
   common.ZipWriteStr(output_zip, "boot.img", boot_img.data)
+  # disable modem.ubifs in full update, due to size
+  #if modem_ubifs_vol_update:
+    #common.ZipWriteStr(output_zip, "modem.ubifs", modem_ubifs.data)
 
   script.ShowProgress(0.05, 5)
   if OPTIONS.ab_ota_update:
@@ -897,6 +983,49 @@ endif;
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
+
+
+  if OPTIONS.nad_update:
+    # disable full of modem.ubifs, due to more size, donot include modem.ubifs in full update
+    #if modem_ubifs_vol_update:
+      #script.AppendExtra('');
+
+      #script.AppendExtra('write_modem_ubifs_image(package_extract_file("modem.ubifs","/tmp/modem.ubifs"), "firmware") || '
+      #                  'abort("Failed to write modem ubifs image!");');
+      #script.AppendExtra('');
+    script.AppendExtra('');
+    script.AppendExtra('set_inactive_slot_as_active() || '
+                       'abort("Failed to set inactive slot as active!");');
+    script.AppendExtra('');
+    print (" set inactive to active slot ")
+    script.Print("NAD update success...")
+
+    print (" include mirrorscript ")
+    script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+    script_mirror.AppendExtra('');
+    script_mirror.AppendExtra('scan_mtd_partitions() || '
+                       'abort("Failed to scan mtd partitions!");');
+    script_mirror.AppendExtra('');
+    script_mirror.Print("Copying  system  "
+                 " from active to inactive slots...")
+    script_mirror.AppendExtra('copy_volume_active_to_inactive("system") || '
+                        'abort("Failed to copy active sytem volume to inactive system volume!");');
+    script_mirror.Print("Copying  firmware  "
+                 " from active to inactive slots...")
+    #script_mirror.AppendExtra('copy_volume_active_to_inactive("firmware") || '
+    #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
+    script_mirror.AppendExtra('');
+    script_mirror.Print("Copying  all raw partitions  "
+                  " from active to inactive slots...")
+    script_mirror.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
+                        'abort("E%d: Failed to copy src raw partition '
+                        'dest slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+    script_mirror.AppendExtra('');
+    if is_recoveryfs_volume_update:
+      recoveryfs_diff.WriteScript(script_mirror, output_zip)
+    script_mirror.Print("NAD mirror success...")
+
+    script_mirror.AddToZipMirror(input_zip, output_zip)
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -1018,6 +1147,21 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
       type=OPTIONS.device_type,
       platform=OPTIONS.platform_mode)
 
+  if HasModemSquashImage(source_zip):
+    modem_squash_vol_update = True
+  else:
+    modem_squash_vol_update = False
+
+  if HasModemUbifsImage(target_zip):
+    modem_ubifs_vol_update = True
+  else:
+    modem_ubifs_vol_update = False
+
+  if HasRecoveryVolume(source_zip):
+    is_recoveryfs_volume_update = True
+  else:
+    is_recoveryfs_volume_update = False
+
   source_fp = CalculateFingerprint(oem_props, oem_dict,
                                    OPTIONS.source_info_dict)
   target_fp = CalculateFingerprint(oem_props, oem_dict,
@@ -1042,6 +1186,17 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   system_src = GetImage("system", OPTIONS.source_tmp, OPTIONS.source_info_dict)
   system_tgt = GetImage("system", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+  if modem_squash_vol_update:
+    modem_src = GetImage("modem", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    modem_tgt = GetImage("modem", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
+  if modem_ubifs_vol_update:
+    modem_ubifs = common.GetBootableImage(
+      "modem.ubifs", "modem.ubifs", OPTIONS.input_tmp, "IMAGES")
+
+  if is_recoveryfs_volume_update:
+    recoveryfs_src = GetImage("recoveryfs", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
   blockimgdiff_version = 1
   if OPTIONS.info_dict:
@@ -1061,6 +1216,18 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   disable_imgdiff = (system_src_partition.fs_type == "squashfs" or
                      system_tgt_partition.fs_type == "squashfs")
   system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, system_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+
+  if modem_squash_vol_update:
+    modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+
+  if is_recoveryfs_volume_update:
+    recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, recoveryfs_src,
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
@@ -1170,6 +1337,28 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     script.AppendExtra('write_copy_done_cookie(/cache/recovery/AB_COPY_DONE);');
     script.AppendExtra('');
 
+  if OPTIONS.nad_update:
+    script.AppendExtra('');
+    script.AppendExtra('scan_mtd_partitions() || '
+                   'abort("Failed to scan mtd partitions!");');
+    script.AppendExtra('');
+    script.Print("Copying  system  "
+                 " from active to inactive slots...")
+    script.AppendExtra('copy_volume_active_to_inactive("system") || '
+                        'abort("Failed to copy active sytem volume to inactive system volume!");');
+    #script.Print("Copying  firmware  "
+    #             " from active to inactive slots...")
+    #script.AppendExtra('copy_volume_active_to_inactive("firmware") || '
+    #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
+    script.AppendExtra('');
+    script.Print("Copying  all raw partition  "
+                " from active to inactive slots...")
+    script.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
+                        'abort("E%d: Failed to copy boot '
+                       'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+    script.AppendExtra('');
+
+
   script.Print("Verifying current system...")
 
   device_specific.IncrementalOTA_VerifyBegin()
@@ -1198,6 +1387,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
   size = []
   if system_diff:
     size.append(system_diff.required_cache)
+  if modem_squash_vol_update and modem_diff:
+      size.append(modem_diff.required_cache)
   if vendor_diff:
     size.append(vendor_diff.required_cache)
 
@@ -1228,7 +1419,12 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                         (boot_type, boot_device,
                          source_boot.size, source_boot.sha1,
                          target_boot.size, target_boot.sha1))
-      size.append(target_boot.size)
+      # cache check is not used for boot imcremental for nad-prod feature since boot file back up is not used,
+      # nad has dual partitions back is not required
+      if not OPTIONS.nad_update:
+        size.append(target_boot.size)
+      else:
+        print (" skip boot cache check for nad ")
 
   if size:
     script.CacheFreeSpaceCheck(max(size))
@@ -1250,6 +1446,8 @@ else
 
   # Verify the existing partitions.
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if modem_squash_vol_update and modem_diff:
+    modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
 
@@ -1258,8 +1456,10 @@ else
   device_specific.IncrementalOTA_InstallBegin()
 
   system_diff.WriteScript(script, output_zip,
+                          progress=0.7 if vendor_diff else 0.8)
+  if modem_squash_vol_update and modem_diff:
+    modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
-
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
 
@@ -1315,6 +1515,51 @@ endif;
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('delete_copy_done_cookie("/cache/recovery/AB_COPY_DONE");');
     script.AppendExtra('');
+
+  if OPTIONS.nad_update:
+    script.AppendExtra('');
+    script.AppendExtra('set_inactive_slot_as_active() || '
+                       'abort("Failed to set inactive slot as active!");');
+    script.AppendExtra('');
+    if modem_ubifs_vol_update:
+      common.ZipWriteStr(output_zip, "modem.ubifs", modem_ubifs.data)
+      script.AppendExtra('');
+      script.AppendExtra('write_modem_ubifs_image(package_extract_file("modem.ubifs","/tmp/modem.ubifs"), "firmware", "/tmp/modem.ubifs") ||'
+                        'abort("Failed to write modem ubifs image!");');
+      script.AppendExtra('');
+    script.Print("NAD update success...")
+
+    script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+    script_mirror.AppendExtra('');
+    script_mirror.AppendExtra('scan_mtd_partitions() || '
+                   'abort("Failed to scan mtd partitions!");');
+    script_mirror.AppendExtra('');
+    script_mirror.Print("Copying  system  "
+                 " from active to inactive slots...")
+    script_mirror.AppendExtra('copy_volume_active_to_inactive("system") || '
+                        'abort("Failed to copy active sytem volume to inactive system volume!");');
+    #script_mirror.Print("Copying  firmware  "
+    #             " from active to inactive slots...")
+    #script_mirror.AppendExtra('copy_volume_active_to_inactive("firmware") || '
+    #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
+    script_mirror.AppendExtra('');
+    script_mirror.Print("Copying  all raw partition  "
+                " from active to inactive slots...")
+    script_mirror.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
+                        'abort("E%d: Failed to copy boot '
+                       'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+    script_mirror.AppendExtra('');
+
+    if is_recoveryfs_volume_update:
+      size_recovery = []
+      size_recovery.append(recoveryfs_diff.required_cache)
+      if size_recovery:
+        script_mirror.CacheFreeSpaceCheck(max(size_recovery))
+      recoveryfs_diff.WriteVerifyScript(script_mirror, touched_blocks_only=True)
+      recoveryfs_diff.WriteScript(script_mirror, output_zip)
+
+    script_mirror.Print("NAD mirror success...")
+    script_mirror.AddToZipMirror(target_zip, output_zip)
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source
@@ -2351,6 +2596,10 @@ def main(argv):
   OPTIONS.ab_ota_update = OPTIONS.info_dict.get("le_target_supports_ab", "0") == "1"
   if OPTIONS.ab_ota_update:
     print ("Generating A/B OTA upgrade package..");
+
+  OPTIONS.nad_update = OPTIONS.info_dict.get("le_target_supports_nad", "0") == "1"
+  if OPTIONS.nad_update:
+    print ("Including  A/B sync for nad..");
 
   if ab_update:
     if OPTIONS.incremental_source is not None:

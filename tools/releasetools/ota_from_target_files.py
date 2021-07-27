@@ -813,8 +813,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       symlinks = CopyPartitionFiles(system_items, input_zip, output_zip)
       script.MakeSymlinks(symlinks)
 
-    boot_img = common.GetBootableImage(
-        "boot.img", "boot.img", OPTIONS.input_tmp, "BOOT")
+  boot_img = common.GetBootableImage(
+      "boot.img", "boot.img", OPTIONS.input_tmp, "BOOT")
 
   if not block_based and not dm_verity_nand:
     def output_sink(fn, data):

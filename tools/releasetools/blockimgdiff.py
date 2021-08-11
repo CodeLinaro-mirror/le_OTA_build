@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from __future__ import print_function
+
 
 from collections import deque, OrderedDict
 from hashlib import sha1
@@ -290,8 +290,8 @@ class BlockImageDiff(object):
 
     # The range sets in each filemap should comprise a partition of
     # the care map.
-    self.AssertPartition(src.care_map, src.file_map.values())
-    self.AssertPartition(tgt.care_map, tgt.file_map.values())
+    self.AssertPartition(src.care_map, list(src.file_map.values()))
+    self.AssertPartition(tgt.care_map, list(tgt.file_map.values()))
 
   @property
   def max_stashed_size(self):
@@ -601,20 +601,20 @@ class BlockImageDiff(object):
 
     with open(prefix + ".transfer.list", "wb") as f:
       for i in out:
-        f.write(i)
+        f.write(str.encode(i))
 
     if self.version >= 2:
       self._max_stashed_size = max_stashed_blocks * self.tgt.blocksize
       OPTIONS = common.OPTIONS
       if OPTIONS.cache_size is not None:
         max_allowed = OPTIONS.cache_size * OPTIONS.stash_threshold
-        print("max stashed blocks: %d  (%d bytes), "
+        print(("max stashed blocks: %d  (%d bytes), "
               "limit: %d bytes (%.2f%%)\n" % (
               max_stashed_blocks, self._max_stashed_size, max_allowed,
-              self._max_stashed_size * 100.0 / max_allowed))
+              self._max_stashed_size * 100.0 / max_allowed)))
       else:
-        print("max stashed blocks: %d  (%d bytes), limit: <unknown>\n" % (
-              max_stashed_blocks, self._max_stashed_size))
+        print(("max stashed blocks: %d  (%d bytes), limit: <unknown>\n" % (
+              max_stashed_blocks, self._max_stashed_size)))
 
   def ReviseStashSize(self):
     print("Revising stash size...")
@@ -654,7 +654,7 @@ class BlockImageDiff(object):
           # that will use this stash and replace the command with "new".
           use_cmd = stashes[idx][2]
           replaced_cmds.append(use_cmd)
-          print("%10d  %9s  %s" % (sr.size(), "explicit", use_cmd))
+          print(("%10d  %9s  %s" % (sr.size(), "explicit", use_cmd)))
         else:
           stashed_blocks += sr.size()
 
@@ -669,7 +669,7 @@ class BlockImageDiff(object):
         if xf.src_ranges.overlaps(xf.tgt_ranges):
           if stashed_blocks + xf.src_ranges.size() > max_allowed:
             replaced_cmds.append(xf)
-            print("%10d  %9s  %s" % (xf.src_ranges.size(), "implicit", xf))
+            print(("%10d  %9s  %s" % (xf.src_ranges.size(), "implicit", xf)))
 
       # Replace the commands in replaced_cmds with "new"s.
       for cmd in replaced_cmds:
@@ -686,8 +686,8 @@ class BlockImageDiff(object):
         cmd.ConvertToNew()
 
     num_of_bytes = new_blocks * self.tgt.blocksize
-    print("  Total %d blocks (%d bytes) are packed as new blocks due to "
-          "insufficient cache size." % (new_blocks, num_of_bytes))
+    print(("  Total %d blocks (%d bytes) are packed as new blocks due to "
+          "insufficient cache size." % (new_blocks, num_of_bytes)))
 
   def ComputePatches(self, prefix):
     print("Reticulating splines...")
@@ -697,17 +697,17 @@ class BlockImageDiff(object):
       for xf in self.transfers:
         if xf.style == "zero":
           tgt_size = xf.tgt_ranges.size() * self.tgt.blocksize
-          print("%10d %10d (%6.2f%%) %7s %s %s" % (
+          print(("%10d %10d (%6.2f%%) %7s %s %s" % (
               tgt_size, tgt_size, 100.0, xf.style, xf.tgt_name,
-              str(xf.tgt_ranges)))
+              str(xf.tgt_ranges))))
 
         elif xf.style == "new":
           for piece in self.tgt.ReadRangeSet(xf.tgt_ranges):
             new_f.write(piece)
           tgt_size = xf.tgt_ranges.size() * self.tgt.blocksize
-          print("%10d %10d (%6.2f%%) %7s %s %s" % (
+          print(("%10d %10d (%6.2f%%) %7s %s %s" % (
               tgt_size, tgt_size, 100.0, xf.style,
-              xf.tgt_name, str(xf.tgt_ranges)))
+              xf.tgt_name, str(xf.tgt_ranges))))
 
         elif xf.style == "diff":
           src = self.src.ReadRangeSet(xf.src_ranges)
@@ -736,11 +736,11 @@ class BlockImageDiff(object):
             # just issue copy commands on the device.
             xf.style = "move"
             if xf.src_ranges != xf.tgt_ranges:
-              print("%10d %10d (%6.2f%%) %7s %s %s (from %s)" % (
+              print(("%10d %10d (%6.2f%%) %7s %s %s (from %s)" % (
                   tgt_size, tgt_size, 100.0, xf.style,
                   xf.tgt_name if xf.tgt_name == xf.src_name else (
                       xf.tgt_name + " (from " + xf.src_name + ")"),
-                  str(xf.tgt_ranges), str(xf.src_ranges)))
+                  str(xf.tgt_ranges), str(xf.src_ranges))))
           else:
             # For files in zip format (eg, APKs, JARs, etc.) we would
             # like to use imgdiff -z if possible (because it usually
@@ -769,7 +769,7 @@ class BlockImageDiff(object):
 
     if diff_q:
       if self.threads > 1:
-        print("Computing patches (using %d threads)..." % (self.threads,))
+        print(("Computing patches (using %d threads)..." % (self.threads,)))
       else:
         print("Computing patches...")
       diff_q.sort()
@@ -788,11 +788,11 @@ class BlockImageDiff(object):
           size = len(patch)
           with lock:
             patches[patchnum] = (patch, xf)
-            print("%10d %10d (%6.2f%%) %7s %s %s %s" % (
+            print(("%10d %10d (%6.2f%%) %7s %s %s %s" % (
                 size, tgt_size, size * 100.0 / tgt_size, xf.style,
                 xf.tgt_name if xf.tgt_name == xf.src_name else (
                     xf.tgt_name + " (from " + xf.src_name + ")"),
-                str(xf.tgt_ranges), str(xf.src_ranges)))
+                str(xf.tgt_ranges), str(xf.src_ranges))))
 
       threads = [threading.Thread(target=diff_worker)
                  for _ in range(self.threads)]
@@ -817,7 +817,7 @@ class BlockImageDiff(object):
     # - we write every block we care about exactly once.
 
     # Start with no blocks having been touched yet.
-    touched = array.array("B", "\0" * self.tgt.total_blocks)
+    touched = array.array("B", [0] * self.tgt.total_blocks)
 
     # Imagine processing the transfers in order.
     for xf in self.transfers:
@@ -918,12 +918,12 @@ class BlockImageDiff(object):
       lost = size - xf.src_ranges.size()
       lost_source += lost
 
-    print(("  %d/%d dependencies (%.2f%%) were violated; "
+    print((("  %d/%d dependencies (%.2f%%) were violated; "
            "%d source blocks removed.") %
           (out_of_order, in_order + out_of_order,
            (out_of_order * 100.0 / (in_order + out_of_order))
            if (in_order + out_of_order) else 0.0,
-           lost_source))
+           lost_source)))
 
   def ReverseBackwardEdges(self):
     print("Reversing backward edges...")
@@ -958,12 +958,12 @@ class BlockImageDiff(object):
           xf.goes_after[u] = None    # value doesn't matter
           u.goes_before[xf] = None
 
-    print(("  %d/%d dependencies (%.2f%%) were violated; "
+    print((("  %d/%d dependencies (%.2f%%) were violated; "
            "%d source blocks stashed.") %
           (out_of_order, in_order + out_of_order,
            (out_of_order * 100.0 / (in_order + out_of_order))
            if (in_order + out_of_order) else 0.0,
-           stash_size))
+           stash_size)))
 
   def FindVertexSequence(self):
     print("Finding vertex sequence...")
@@ -1216,8 +1216,8 @@ class BlockImageDiff(object):
 
         if tgt_changed < tgt_size * crop_threshold:
           assert tgt_changed + tgt_skipped.size() == tgt_size
-          print('%10d %10d (%6.2f%%) %s' % (tgt_skipped.size(), tgt_size,
-                tgt_skipped.size() * 100.0 / tgt_size, tgt_name))
+          print(('%10d %10d (%6.2f%%) %s' % (tgt_skipped.size(), tgt_size,
+                tgt_skipped.size() * 100.0 / tgt_size, tgt_name)))
           AddSplitTransfers(
               "%s-skipped" % (tgt_name,),
               "%s-skipped" % (src_name,),
@@ -1241,7 +1241,7 @@ class BlockImageDiff(object):
     print("Finding transfers...")
 
     empty = RangeSet()
-    for tgt_fn, tgt_ranges in self.tgt.file_map.items():
+    for tgt_fn, tgt_ranges in list(self.tgt.file_map.items()):
       if tgt_fn == "__ZERO":
         # the special "__ZERO" domain is all the blocks not contained
         # in any file and that are filled with zeros.  We have a
@@ -1285,7 +1285,7 @@ class BlockImageDiff(object):
       AddTransfer(tgt_fn, None, tgt_ranges, empty, "new", self.transfers)
 
   def AbbreviateSourceNames(self):
-    for k in self.src.file_map.keys():
+    for k in list(self.src.file_map.keys()):
       b = os.path.basename(k)
       self.src_basenames[b] = k
       b = re.sub("[0-9]+", "#", b)

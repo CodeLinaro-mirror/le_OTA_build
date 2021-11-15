@@ -831,22 +831,6 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       script.AppendExtra('scan_mtd_partitions() || '
                      'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('');
-      script.Print("Copying  system  "
-                   " from active to inactive slots...")
-      script.AppendExtra('copy_volume_active_to_inactive("system") || '
-                          'abort("Failed to copy active sytem volume to inactive system volume!");');
-      #script.Print("Copying  firmware  "
-      #             " from active to inactive slots...")
-      #script.AppendExtra('copy_volume_active_to_inactive("firmware") || '
-      #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
-      script.AppendExtra('');
-      script.Print("Copying  all raw partition  "
-                  " from active to inactive slots...")
-      script.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
-                         'abort("E%d: Failed to copy boot '
-                         'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-      script.AppendExtra('');
-
 
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
@@ -1342,22 +1326,6 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     script.AppendExtra('scan_mtd_partitions() || '
                    'abort("Failed to scan mtd partitions!");');
     script.AppendExtra('');
-    script.Print("Copying  system  "
-                 " from active to inactive slots...")
-    script.AppendExtra('copy_volume_active_to_inactive("system") || '
-                        'abort("Failed to copy active sytem volume to inactive system volume!");');
-    #script.Print("Copying  firmware  "
-    #             " from active to inactive slots...")
-    #script.AppendExtra('copy_volume_active_to_inactive("firmware") || '
-    #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
-    script.AppendExtra('');
-    script.Print("Copying  all raw partition  "
-                " from active to inactive slots...")
-    script.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
-                        'abort("E%d: Failed to copy boot '
-                       'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-    script.AppendExtra('');
-
 
   script.Print("Verifying current system...")
 

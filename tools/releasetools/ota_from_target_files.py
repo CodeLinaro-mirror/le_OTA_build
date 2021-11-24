@@ -96,6 +96,9 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       file-based OTA if the target_files is older and doesn't support
       block-based OTAs.
 
+  --ubuntu
+      When generate the OTA for ubuntu, it is needed to add this value.
+
   -b  (--binary)  <file>
       Use the given binary as the update-binary in the output package,
       instead of the binary in the build's target_files.  Use for
@@ -171,6 +174,7 @@ if OPTIONS.worker_threads == 0:
 OPTIONS.two_step = False
 OPTIONS.no_signing = False
 OPTIONS.block_based = False
+OPTIONS.ubuntu_based = False
 OPTIONS.updater_binary = None
 OPTIONS.oem_source = None
 OPTIONS.oem_no_mount = False
@@ -556,6 +560,11 @@ def HasModemSquashImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
   return ("IMAGES/modem.img" in namelist)
 
+# if this file is present, telaf will be included in update package
+def HasTelafSquashImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/telaf.img" in namelist)
+
 # enable nonhlos.ubifs full update on firmware volume
 def HasModemUbifsImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
@@ -595,7 +604,7 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  assert which in ("system", "vendor", "modem", "recoveryfs")
+  assert which in ("system", "vendor", "modem", "telaf", "recoveryfs")
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
@@ -757,6 +766,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   else:
     modem_squash_vol_update = False
 
+  if HasTelafSquashImage(input_zip):
+    telaf_squash_vol_update = True
+  else:
+    telaf_squash_vol_update = False
+
   if HasModemUbifsImage(input_zip):
     modem_ubifs_vol_update = True
   else:
@@ -775,9 +789,13 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     # image.  This has the effect of writing new data from the package
     # to the entire partition, but lets us reuse the updater code that
     # writes incrementals to do it.
-    system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
-    system_tgt.ResetFileMap()
-    system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
+
+    # If Full OTA is for ubunt, the Full OTA will not upgrade
+    # the system.img
+    if not OPTIONS.ubuntu_based:
+        system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
+        system_tgt.ResetFileMap()
+        system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
 
         # enable full update for modem with squashfs image
         if modem_squash_vol_update:
@@ -786,9 +804,16 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           modem_tgt.ResetFileMap()
           modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, src=None)
 
+        # enable full update for telaf with squashfs image
+        if telaf_squash_vol_update:
+          print (" generating telaf update also ")
+          telaf_tgt = GetImage("telaf", OPTIONS.input_tmp, OPTIONS.info_dict)
+          telaf_tgt.ResetFileMap()
+          telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, src=None)
+
         # enable full update for recoveryfs with squashfs image
         if is_recoveryfs_volume_update:
-          print (" generating modem update also ")
+          print (" generating recoveryfs update also ")
           recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.input_tmp, OPTIONS.info_dict)
           recoveryfs_tgt.ResetFileMap()
           recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, src=None)
@@ -802,12 +827,21 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       script.AppendExtra('set_inactive_slot_as_unbootable() || '
                          'abort("Failed to set inactive slot as unbootable!");');
       script.AppendExtra('');
-      script.Print("Copying blocks of all A/B partitions "
-                   "(except system & boot) from active to inactive slots...")
-      script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
-                          'abort("E%d: Failed to copy all partitions from '
-                          'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-      script.AppendExtra('');
+      if not OPTIONS.device_type == "MTD":
+        script.Print("Copying blocks of all A/B partitions "
+                     "(except system & boot) from active to inactive slots...")
+        script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+        script.AppendExtra('');
+      if OPTIONS.device_type == "MTD":
+        script.AppendExtra('');
+        script.AppendExtra('scan_mtd_partitions() || '
+                         'abort("Failed to scan mtd partitions!");');
+        # For full ota : added for modem that has volume a/b and has name nonhlos-fs
+        # script.AppendExtra('copy_active_nonhlos_to_inactive_nonhlos() || '
+                           # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
+        script.AppendExtra('');
 
     if OPTIONS.nad_update:
       script.AppendExtra('');
@@ -819,6 +853,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_diff.WriteScript(script, output_zip)
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
+        if telaf_squash_vol_update:
+          telaf_diff.WriteScript(script, output_zip)
 
   else:
     script.FormatPartition(OPTIONS.system_mount_path)
@@ -1119,6 +1155,11 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   else:
     modem_squash_vol_update = False
 
+  if HasTelafSquashImage(source_zip):
+    telaf_squash_vol_update = True
+  else:
+    telaf_squash_vol_update = False
+
   if HasModemUbifsImage(target_zip):
     modem_ubifs_vol_update = True
   else:
@@ -1157,6 +1198,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
     modem_src = GetImage("modem", OPTIONS.source_tmp, OPTIONS.source_info_dict)
     modem_tgt = GetImage("modem", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
+  if telaf_squash_vol_update:
+    telaf_src = GetImage("telaf", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    telaf_tgt = GetImage("telaf", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
   if modem_ubifs_vol_update:
     modem_ubifs = common.GetBootableImage(
       "modem.ubifs", "modem.ubifs", OPTIONS.input_tmp, "IMAGES")
@@ -1189,6 +1234,12 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   if modem_squash_vol_update:
     modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+
+  if telaf_squash_vol_update:
+    telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, telaf_src,
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
@@ -1340,6 +1391,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     size.append(system_diff.required_cache)
   if modem_squash_vol_update and modem_diff:
       size.append(modem_diff.required_cache)
+  if telaf_squash_vol_update and telaf_diff:
+      size.append(telaf_diff.required_cache)
   if vendor_diff:
     size.append(vendor_diff.required_cache)
 
@@ -1399,6 +1452,8 @@ else
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if telaf_squash_vol_update and telaf_diff:
+    telaf_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
 
@@ -1411,6 +1466,9 @@ else
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
+  if telaf_squash_vol_update and telaf_diff:
+    telaf_diff.WriteScript(script, output_zip,
+                          progress=0.81 if vendor_diff else 0.88)
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
 
@@ -2370,9 +2428,9 @@ def PackRecoveryImages(output_zip, info_dict):
      return
 
    # Pack the recovery.img and the
-   # unsparsed recoveryfs.ext4 into update.zip .
+   # unsparsed recoveryfs.ext4 or recoveryfs.ubi into update.zip .
    # These images will be packed as a whole.
-   # We currently support recovery upgrade only for EMMC devices
+   # We currently support recovery upgrade for EMMC and NAND devices
    if OPTIONS.device_type == "MMC":
      target_recovery_img = common.GetBootableImage(
                              "recovery.img", "boot.img",
@@ -2390,6 +2448,25 @@ def PackRecoveryImages(output_zip, info_dict):
      common.ZipWriteStr(output_zip, "recoveryupgrade/" + target_recovery_img.name,
                         target_recovery_img.data)
      common.ZipWriteStr(output_zip, "recoveryupgrade/" + target_recoveryfs_img.name,
+                        target_recoveryfs_img.data)
+
+   if OPTIONS.device_type == "MTD":
+     target_recovery_img = common.GetBootableImage(
+                             "boot.img", "boot.img",
+                             OPTIONS.target_tmp, "")
+     target_recoveryfs_img = common.GetBootableImage(
+                               "recoveryfs.ubi",
+                               "recoveryfs.ubi",
+                               OPTIONS.target_tmp, "")
+
+     if not target_recovery_img or not target_recoveryfs_img:
+       print("recovery/recoveryfs images are missing from input zip")
+       raise AssertionError('Images essential for recovery upgrade are missing')
+       return
+
+     # write only the recoveryfs image
+     # since the boot.img will already be there in update.zip
+     common.ZipWriteStr(output_zip, target_recoveryfs_img.name,
                         target_recoveryfs_img.data)
 
 def main(argv):
@@ -2437,6 +2514,8 @@ def main(argv):
       OPTIONS.verify = True
     elif o == "--block":
       OPTIONS.block_based = True
+    elif o == "--ubuntu":
+      OPTIONS.ubuntu_based = True
     elif o in ("-b", "--binary"):
       OPTIONS.updater_binary = a
     elif o in ("--no_fallback_to_full",):
@@ -2483,6 +2562,7 @@ def main(argv):
                                  "two_step",
                                  "no_signing",
                                  "block",
+                                 "ubuntu",
                                  "binary=",
                                  "oem_settings=",
                                  "oem_no_mount",

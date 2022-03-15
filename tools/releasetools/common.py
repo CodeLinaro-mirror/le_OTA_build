@@ -285,7 +285,10 @@ def LoadBuildProp(read_helper):
   except KeyError:
     print(("Warning: could not find SYSTEM/build.prop in %s" % zip))
     data = ""
-  return LoadDictionaryFromLines(data.decode().split("\n"))
+  if isinstance(data, str):
+      return LoadDictionaryFromLines(data.encode('utf-8').decode('utf-8').split("\n"))
+  elif isinstance(data, bytes):
+      return LoadDictionaryFromLines(data.decode().split("\n"))
 
 def LoadDictionaryFromLines(lines):
   d = {}

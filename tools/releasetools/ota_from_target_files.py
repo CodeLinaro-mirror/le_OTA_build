@@ -865,7 +865,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   script.ShowProgress(0.2, 10)
   device_specific.FullOTA_InstallEnd()
-  if not dm_verity_nand:
+  if not block_based and not dm_verity_nand:
     script.AppendExtra('run_program("/usr/bin/find", "/",'
                        '"-name", "__emptyfile__", "-type", "f", "-delete");')
 

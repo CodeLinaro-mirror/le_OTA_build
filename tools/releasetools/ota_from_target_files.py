@@ -555,6 +555,7 @@ def HasIncrementalBoot(target_files_zip):
   print (" nad_support is False ");
   return False
 
+
 # if this file is present, incremental boot image is supported in build
 def HasModemSquashImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
@@ -796,6 +797,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
+        if OPTIONS.nad_update:
+          system_image_size = system_diff.GetImageSize()
+          print (" system_image_size %s" %(system_image_size))
 
         # enable full update for modem with squashfs image
         if modem_squash_vol_update:
@@ -803,6 +807,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           modem_tgt = GetImage("modem", OPTIONS.input_tmp, OPTIONS.info_dict)
           modem_tgt.ResetFileMap()
           modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, src=None)
+          modem_image_size = modem_diff.GetImageSize()
+          print (" modem_image_size %s" %(modem_image_size))
 
         # enable full update for telaf with squashfs image
         if telaf_squash_vol_update:
@@ -810,6 +816,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           telaf_tgt = GetImage("telaf", OPTIONS.input_tmp, OPTIONS.info_dict)
           telaf_tgt.ResetFileMap()
           telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, src=None)
+          telaf_image_size = telaf_diff.GetImageSize()
+          print (" telaf_image_size %s" %(telaf_image_size))
 
         # enable full update for recoveryfs with squashfs image
         if is_recoveryfs_volume_update:
@@ -817,6 +825,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.input_tmp, OPTIONS.info_dict)
           recoveryfs_tgt.ResetFileMap()
           recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, src=None)
+          recoveryfs_image_size = recoveryfs_diff.GetImageSize()
+          print (" recoveryfs_image_size %s" %(recoveryfs_image_size))
 
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
@@ -851,10 +861,17 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
+        if OPTIONS.nad_update:
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                         'abort("Failed to erase blocks in system volume!");') % system_image_size);
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                         'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
         if telaf_squash_vol_update:
           telaf_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                         'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
 
   else:
     script.FormatPartition(OPTIONS.system_mount_path)
@@ -1026,6 +1043,8 @@ endif;
     script_mirror.AppendExtra('');
     if is_recoveryfs_volume_update:
       recoveryfs_diff.WriteScript(script_mirror, output_zip)
+      script_mirror.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/recoveryfs", "%d" ) || '
+                        'abort("Failed to erase blocks in recoveryfs volume!");') % recoveryfs_image_size);
     script_mirror.Print("NAD mirror success...")
 
     script_mirror.AddToZipMirror(input_zip, output_zip)
@@ -1231,24 +1250,33 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
+  if OPTIONS.nad_update:
+    system_image_size = system_diff.GetImageSize()
+    print (" system_image_size %s" %(system_image_size))
 
   if modem_squash_vol_update:
     modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
+    modem_image_size = modem_diff.GetImageSize()
+    print (" modem_image_size %s" %(modem_image_size))
 
   if telaf_squash_vol_update:
     telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, telaf_src,
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
+    telaf_image_size = telaf_diff.GetImageSize()
+    print (" telaf_image_size %s" %(telaf_image_size))
 
   if is_recoveryfs_volume_update:
     recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, recoveryfs_src,
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
+    recoveryfs_image_size = recoveryfs_diff.GetImageSize()
+    print (" recoveryfs_image_size %s" %(recoveryfs_image_size))
 
   if HasVendorPartition(target_zip):
     if not HasVendorPartition(source_zip):
@@ -1463,12 +1491,20 @@ else
 
   system_diff.WriteScript(script, output_zip,
                           progress=0.7 if vendor_diff else 0.8)
+  if OPTIONS.nad_update:
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                     'abort("Failed to erase blocks in system volume!");') % system_image_size);
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                     'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+
   if telaf_squash_vol_update and telaf_diff:
     telaf_diff.WriteScript(script, output_zip,
                           progress=0.81 if vendor_diff else 0.88)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                     'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
 
@@ -1566,6 +1602,9 @@ endif;
         script_mirror.CacheFreeSpaceCheck(max(size_recovery))
       recoveryfs_diff.WriteVerifyScript(script_mirror, touched_blocks_only=True)
       recoveryfs_diff.WriteScript(script_mirror, output_zip)
+      script_mirror.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/recoveryfs", "%d" ) || '
+                       'abort("Failed to erase blocks in recoveryfs volume!");') % recoveryfs_image_size);
+
 
     script_mirror.Print("NAD mirror success...")
     script_mirror.AddToZipMirror(target_zip, output_zip)

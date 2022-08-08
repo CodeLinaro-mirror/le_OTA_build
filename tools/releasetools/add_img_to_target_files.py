@@ -159,6 +159,11 @@ def BuildVendor(input_dir, info_dict, block_list=None):
   return CreateImage(input_dir, info_dict, "vendor", block_list=block_list)
 
 
+def BuildVendordlkm(input_dir, info_dict, block_list=None):
+  """Build the (sparse) vendor_dlkm image and return the name of a temp
+  file containing it."""
+  return CreateImage(input_dir, info_dict, "vendor_dlkm", block_list=block_list)
+
 def CreateImage(input_dir, info_dict, what, block_list=None):
   print("creating " + what + ".img...")
 

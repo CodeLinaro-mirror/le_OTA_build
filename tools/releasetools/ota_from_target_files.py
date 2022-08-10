@@ -739,13 +739,15 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     
     # If Full OTA is for ubunt, the Full OTA will not upgrade
     # the system.img
+    vendor_dlkm_exist = OPTIONS.info_dict.get("vendor_dlkm_exist", "0") == "1"
     if not OPTIONS.ubuntu_based:
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
-        vdlkm_tgt = GetImage("vendor_dlkm", OPTIONS.input_tmp, OPTIONS.info_dict)
-        vdlkm_tgt.ResetFileMap()
-        vdlkm_diff = common.BlockDifference("vendor_dlkm", "/lib/modules/", vdlkm_tgt, src=None)
+        if vendor_dlkm_exist:
+            vdlkm_tgt = GetImage("vendor_dlkm", OPTIONS.input_tmp, OPTIONS.info_dict)
+            vdlkm_tgt.ResetFileMap()
+            vdlkm_diff = common.BlockDifference("vendor_dlkm", "/lib/modules/", vdlkm_tgt, src=None)
 
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
@@ -774,7 +776,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
-        vdlkm_diff.WriteScript(script, output_zip)
+        if vendor_dlkm_exist:
+            vdlkm_diff.WriteScript(script, output_zip)
 
   else:
     if not dm_verity_nand:

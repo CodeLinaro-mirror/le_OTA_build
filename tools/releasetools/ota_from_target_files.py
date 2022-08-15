@@ -567,7 +567,7 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  assert which in ("system", "vendor")
+  assert which in ("system", "vendor", "vendor_dlkm")
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
@@ -597,6 +597,9 @@ def GetImage(which, tmpdir, info_dict):
           tmpdir, info_dict, block_list=mappath)
     elif which == "vendor":
       path = add_img_to_target_files.BuildVendor(
+          tmpdir, info_dict, block_list=mappath)
+    elif which == "vendor_dlkm":
+      path = add_img_to_target_files.BuildVendordlkm(
           tmpdir, info_dict, block_list=mappath)
 
   # Bug: http://b/20939131
@@ -740,6 +743,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
+        vdlkm_tgt = GetImage("vendor_dlkm", OPTIONS.input_tmp, OPTIONS.info_dict)
+        vdlkm_tgt.ResetFileMap()
+        vdlkm_diff = common.BlockDifference("vendor_dlkm", "/lib/modules/", vdlkm_tgt, src=None)
 
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
@@ -768,6 +774,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
+        vdlkm_diff.WriteScript(script, output_zip)
 
   else:
     if not dm_verity_nand:
@@ -865,7 +872,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   script.ShowProgress(0.2, 10)
   device_specific.FullOTA_InstallEnd()
-  if not dm_verity_nand:
+  if not block_based and not dm_verity_nand:
     script.AppendExtra('run_program("/usr/bin/find", "/",'
                        '"-name", "__emptyfile__", "-type", "f", "-delete");')
 

@@ -1402,7 +1402,8 @@ class BlockDifference(object):
 
     if system_mount_point == '/':
       partition = ''
-
+    if system_mount_point == '/lib/modules/':
+      partition = 'lib/modules/'
     if src is None:
       _, self.device = GetTypeAndDevice("/" + partition, OPTIONS.info_dict)
     else:

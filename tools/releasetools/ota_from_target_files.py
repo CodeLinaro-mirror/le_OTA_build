@@ -1477,6 +1477,10 @@ else
     script.Comment("Stage 3/3")
 
   # Verify the existing partitions.
+  if OPTIONS.nad_fde:
+    #copy FDE image to /tmp
+    script.AppendExtra('copy_decrypted_image_to_temp("/dev/block/bootdevice/by-name/system") || '
+                     'abort("Failed to copy system FDE image!");');
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
@@ -1494,6 +1498,12 @@ else
   if OPTIONS.nad_update:
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                      'abort("Failed to erase blocks in system volume!");') % system_image_size);
+
+  if OPTIONS.nad_update:
+    if OPTIONS.nad_fde:
+      #copy updated /tmp image to partition
+      script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                       'abort("Failed to copy system FDE image!");') % system_image_size);
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
@@ -2648,6 +2658,10 @@ def main(argv):
   OPTIONS.nad_update = OPTIONS.info_dict.get("le_target_supports_nad", "0") == "1"
   if OPTIONS.nad_update:
     print ("Including  A/B sync for nad..");
+
+  OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"
+  if OPTIONS.nad_fde:
+    print ("FDE is supported..");
 
   if ab_update:
     if OPTIONS.incremental_source is not None:

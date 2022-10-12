@@ -605,7 +605,10 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  assert which in ("system", "vendor", "modem", "telaf", "recoveryfs")
+  if OPTIONS.nad_update:
+    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs")
+  else:
+    assert which in ("system", "vendor")
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
@@ -1019,35 +1022,6 @@ endif;
     script.AppendExtra('');
     print (" set inactive to active slot ")
     script.Print("NAD update success...")
-
-    print (" include mirrorscript ")
-    script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
-    script_mirror.AppendExtra('');
-    script_mirror.AppendExtra('scan_mtd_partitions() || '
-                       'abort("Failed to scan mtd partitions!");');
-    script_mirror.AppendExtra('');
-    script_mirror.Print("Copying  system  "
-                 " from active to inactive slots...")
-    script_mirror.AppendExtra('copy_volume_active_to_inactive("system") || '
-                        'abort("Failed to copy active sytem volume to inactive system volume!");');
-    script_mirror.Print("Copying  firmware  "
-                 " from active to inactive slots...")
-    #script_mirror.AppendExtra('copy_volume_active_to_inactive("firmware") || '
-    #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
-    script_mirror.AppendExtra('');
-    script_mirror.Print("Copying  all raw partitions  "
-                  " from active to inactive slots...")
-    script_mirror.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
-                        'abort("E%d: Failed to copy src raw partition '
-                        'dest slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-    script_mirror.AppendExtra('');
-    if is_recoveryfs_volume_update:
-      recoveryfs_diff.WriteScript(script_mirror, output_zip)
-      script_mirror.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/recoveryfs", "%d" ) || '
-                        'abort("Failed to erase blocks in recoveryfs volume!");') % recoveryfs_image_size);
-    script_mirror.Print("NAD mirror success...")
-
-    script_mirror.AddToZipMirror(input_zip, output_zip)
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -1583,41 +1557,6 @@ endif;
                         'abort("Failed to write modem ubifs image!");');
       script.AppendExtra('');
     script.Print("NAD update success...")
-
-    script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
-    script_mirror.AppendExtra('');
-    script_mirror.AppendExtra('scan_mtd_partitions() || '
-                   'abort("Failed to scan mtd partitions!");');
-    script_mirror.AppendExtra('');
-    script_mirror.Print("Copying  system  "
-                 " from active to inactive slots...")
-    script_mirror.AppendExtra('copy_volume_active_to_inactive("system") || '
-                        'abort("Failed to copy active sytem volume to inactive system volume!");');
-    #script_mirror.Print("Copying  firmware  "
-    #             " from active to inactive slots...")
-    #script_mirror.AppendExtra('copy_volume_active_to_inactive("firmware") || '
-    #                    'abort("Failed to copy active firmware volume to inactive firmware volume!");');
-    script_mirror.AppendExtra('');
-    script_mirror.Print("Copying  all raw partition  "
-                " from active to inactive slots...")
-    script_mirror.AppendExtra(('copy_all_raw_partitions_active_to_inactive() || '
-                        'abort("E%d: Failed to copy boot '
-                       'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-    script_mirror.AppendExtra('');
-
-    if is_recoveryfs_volume_update:
-      size_recovery = []
-      size_recovery.append(recoveryfs_diff.required_cache)
-      if size_recovery:
-        script_mirror.CacheFreeSpaceCheck(max(size_recovery))
-      recoveryfs_diff.WriteVerifyScript(script_mirror, touched_blocks_only=True)
-      recoveryfs_diff.WriteScript(script_mirror, output_zip)
-      script_mirror.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/recoveryfs", "%d" ) || '
-                       'abort("Failed to erase blocks in recoveryfs volume!");') % recoveryfs_image_size);
-
-
-    script_mirror.Print("NAD mirror success...")
-    script_mirror.AddToZipMirror(target_zip, output_zip)
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source

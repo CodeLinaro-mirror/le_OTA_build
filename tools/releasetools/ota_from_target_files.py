@@ -1469,15 +1469,17 @@ else
 
   system_diff.WriteScript(script, output_zip,
                           progress=0.7 if vendor_diff else 0.8)
-  if OPTIONS.nad_update:
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
-                     'abort("Failed to erase blocks in system volume!");') % system_image_size);
 
   if OPTIONS.nad_update:
     if OPTIONS.nad_fde:
       #copy updated /tmp image to partition
       script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
                        'abort("Failed to copy system FDE image!");') % system_image_size);
+
+  if OPTIONS.nad_update:
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                     'abort("Failed to erase blocks in system volume!");') % system_image_size);
+
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)

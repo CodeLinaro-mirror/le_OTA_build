@@ -1412,7 +1412,7 @@ endif;
                             'abort("E%d: Failed to copy all partitions from '
                             'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
       script_mirror.AppendExtra('');
-      script_mirror.AddToZipMirror(input_zip, output_zip)
+      script_mirror.AddToZipMirror(source_zip, output_zip)
 
 
   script.SetProgress(1)

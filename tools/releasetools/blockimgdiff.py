@@ -276,6 +276,7 @@ class BlockImageDiff(object):
     self.touched_src_ranges = RangeSet()
     self.touched_src_sha1 = None
     self.disable_imgdiff = disable_imgdiff
+    self.tgt_image_size = []
 
     assert version in (1, 2, 3, 4)
 
@@ -1259,6 +1260,7 @@ class BlockImageDiff(object):
 
       elif tgt_fn in self.src.file_map:
         # Look for an exact pathname match in the source.
+        self.tgt_image_size = tgt_ranges.size()
         AddTransfer(tgt_fn, tgt_fn, tgt_ranges, self.src.file_map[tgt_fn],
                     "diff", self.transfers, self.version >= 3)
         continue
@@ -1282,6 +1284,7 @@ class BlockImageDiff(object):
                     "diff", self.transfers, self.version >= 3)
         continue
 
+      self.tgt_image_size = tgt_ranges.size()
       AddTransfer(tgt_fn, None, tgt_ranges, empty, "new", self.transfers)
 
   def AbbreviateSourceNames(self):

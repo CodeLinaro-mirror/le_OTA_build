@@ -188,6 +188,7 @@ OPTIONS.log_diff = None
 OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
+OPTIONS.mirror_sync = False
 
 EMPTYFILE_list = []
 
@@ -976,6 +977,17 @@ endif;
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
+    if OPTIONS.mirror_sync:
+      print (" include mirrorscript ")
+      script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      script_mirror.AppendExtra('');
+      script_mirror.Print("Copying  all images"
+                   " from active to inactive slots...")
+      script_mirror.AppendExtra(('copy_all_source_partitions_except() || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script_mirror.AppendExtra('');
+      script_mirror.AddToZipMirror(input_zip, output_zip)
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -1390,6 +1402,18 @@ endif;
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('delete_copy_done_cookie("/cache/recovery/AB_COPY_DONE");');
     script.AppendExtra('');
+    if OPTIONS.mirror_sync:
+      print (" include mirrorscript ")
+      script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      script_mirror.AppendExtra('');
+      script_mirror.Print("Copying  all images"
+                   " from active to inactive slots...")
+      script_mirror.AppendExtra(('copy_all_source_partitions_except() || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script_mirror.AppendExtra('');
+      script_mirror.AddToZipMirror(source_zip, output_zip)
+
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source
@@ -2362,6 +2386,8 @@ def main(argv):
       OPTIONS.payload_signer_args = shlex.split(a)
     elif o == "--system_mount_path":
       OPTIONS.system_mount_path = a
+    elif o == "--mirror_sync":
+      OPTIONS.mirror_sync = True
     else:
       return False
     return True
@@ -2396,7 +2422,8 @@ def main(argv):
                                  "log_diff=",
                                  "payload_signer=",
                                  "payload_signer_args=",
-                                 "system_mount_path="
+                                 "system_mount_path=",
+                                 "mirror_sync"
                              ], extra_option_handler=option_handler)
 
   if len(args) != 2:

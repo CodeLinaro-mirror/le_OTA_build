@@ -188,6 +188,31 @@ OPTIONS.log_diff = None
 OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
+OPTIONS.mirror_sync = False
+
+EMPTYFILE_list = []
+
+def Get_extractedpath(zipname,path):
+    """ Get input zip extracted path"""
+    res      = None
+    keylist  = zipname.split("_")
+    if(len(keylist) != 2):
+        return res
+    else:
+        key = keylist[1].split(".")[0]
+        res = "./target_files_full_ota_" + key + "/" + path
+    return res
+
+def Update_emptyfilelist(entry):
+    """ Update emptyfile list """
+    temp = entry
+    if(temp != None):
+        temp = temp.split("/")
+        op = ""
+        for item in temp:
+            op += "/" + item
+        EMPTYFILE_list.append(op)
+    return 0
 
 def MostPopularKey(d, default):
   """Given a dict, return the key corresponding to the largest
@@ -259,18 +284,32 @@ class ItemSet(object):
       if not line:
         continue
       columns = line.split()
-      name, uid, gid, mode = columns[:4]
       selabel = None
       capabilities = None
 
-      # After the first 4 columns, there are a series of key=value
-      # pairs. Extract out the fields we care about.
-      for element in columns[4:]:
-        key, value = element.split("=")
-        if key == "selabel":
-          selabel = value
-        if key == "capabilities":
-          capabilities = value
+      # Fix for line enteries having space included in the pacakge name
+      breakup  = line.split('0')
+      totalcol = len(columns)
+      if(totalcol==6):
+        name     = columns[totalcol-6]
+        uid      = columns[totalcol-5]
+        gid      = columns[totalcol-4]
+        mode     = columns[totalcol-3]
+        selabel  = columns[totalcol-2].split("=")[1]
+        capabilities      = columns[totalcol-1].split("=")[1]
+      else:
+        uid      = columns[totalcol-5]
+        gid      = columns[totalcol-4]
+        mode     = columns[totalcol-3]
+        selabel  = columns[totalcol-2].split("=")[1]
+        cap      = columns[totalcol-1].split("=")[1]
+        name = ""
+        for item in columns:
+            if(item != '0'):
+                name+=item+" "
+            else:
+                break
+        name = name[:-1]
 
       i = self.ITEMS.get(name, None)
       if i is not None:
@@ -378,7 +417,15 @@ class Item(object):
       if k[3] is not None and count >= best_fmode[0]:
         best_fmode = (count, k[3])
       if k[4] is not None and count >= best_selabel[0]:
-        best_selabel = (count, k[4])
+        temp = k[4]
+        temp = temp.split(":")
+        if(temp[3] is not None and temp[3] == 's0-s15'):
+            # Setting single level selabel for directories/files with multi level selabel.
+            # SetPermissions take care of setting proper level in case of difference.
+            op = temp[0]+ ":" + temp[1] + ":" + temp[2] + ":" + "s0"
+            best_selabel = (count,op)
+        else:
+           best_selabel = (count, k[4])
       if k[5] is not None and count >= best_capabilities[0]:
         best_capabilities = (count, k[5])
     self.best_subtree = ug + (
@@ -415,6 +462,12 @@ class Item(object):
         if item.uid != current[0] or item.gid != current[1] or \
                item.mode != current[3] or item.selabel != current[4] or \
                item.capabilities != current[5]:
+          if(item.selabel != None):
+              temp = item.selabel.split(":")
+              if(temp[3] is not None and temp[3] == 's0-s15'):
+                  # During enforced recovery upgrade, selinux produces
+                  # constraints denials for symblink file with multi level set.
+                  item.selabel = temp[0]+ ":" + temp[1] + ":" + temp[2] + ":" + "s0"
           script.SetPermissions("/"+item.name, item.uid, item.gid,
                                 item.mode, item.selabel, item.capabilities)
 
@@ -448,6 +501,7 @@ def CopyPartitionFiles(itemset, input_zip, output_zip=None, substitute=None):
 
       else:
         import copy
+        import os
         info2 = copy.copy(info)
         fn = info2.filename = partition + "/" + basefilename
         if substitute and fn in substitute and substitute[fn] is None:
@@ -458,10 +512,27 @@ def CopyPartitionFiles(itemset, input_zip, output_zip=None, substitute=None):
           else:
             data = input_zip.read(info.filename)
           if OPTIONS.platform_mode == "linux_embedded" and fn.endswith("/"):
-            #zip does not play nice with empty folders. Create dummy file to make sure folder is saved in archive.
-            info_dummy = copy.copy(info2)
-            info_dummy.filename = info_dummy.filename + "__emptyfile__"
-            output_zip.writestr(info_dummy,data)
+            path   = Get_extractedpath(output_zip.filename,info.filename)
+            # check extracted path not present or not a empty directoy
+            if(path != None and os.path.isdir(path)):
+                flist = os.listdir(path)
+                # if empty directory, add emptyfile for safe
+                # unzip
+                if(len(flist) == 0):
+                    # Empty directory
+                    info_dummy = copy.copy(info2)
+                    fname = info_dummy.filename
+                    Update_emptyfilelist(fname)
+                    info_dummy.filename = info_dummy.filename + "__emptyfile__"
+                    output_zip.writestr(info_dummy,data)
+                    #print("Empty dir",info.filename)
+            else:
+                #zip does not play nice with empty folders. Create dummy file to make sure folder is saved in archive.
+                info_dummy = copy.copy(info2)
+                fname = info_dummy.filename
+                Update_emptyfilelist(fname)
+                info_dummy.filename = info_dummy.filename + "__emptyfile__"
+                output_zip.writestr(info_dummy,data)
           common.ZipWriteStr(output_zip, info2, data)
         if fn.endswith("/"):
           itemset.Get(fn[:-1], is_dir=True)
@@ -866,8 +937,14 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   script.ShowProgress(0.2, 10)
   device_specific.FullOTA_InstallEnd()
   if not block_based and not dm_verity_nand:
-    script.AppendExtra('run_program("/usr/bin/find", "/",'
-                       '"-name", "__emptyfile__", "-type", "f", "-delete");')
+      # Traverse through recorded history of
+      # __emptyfile__ list and remove
+      for item in EMPTYFILE_list:
+        cmd  = 'run_program("/usr/bin/find", "'
+        cmd += item + '"' 
+        cmd += ', "-maxdepth", "1", '
+        cmd += '"-name", "__emptyfile__", "-type", "f", "-delete");'
+        script.AppendExtra(cmd)
 
   if OPTIONS.extra_script is not None:
     script.AppendExtra(OPTIONS.extra_script)
@@ -900,6 +977,17 @@ endif;
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
+    if OPTIONS.mirror_sync:
+      print (" include mirrorscript ")
+      script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      script_mirror.AppendExtra('');
+      script_mirror.Print("Copying  all images"
+                   " from active to inactive slots...")
+      script_mirror.AppendExtra(('copy_all_source_partitions_except() || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script_mirror.AppendExtra('');
+      script_mirror.AddToZipMirror(input_zip, output_zip)
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -1314,6 +1402,18 @@ endif;
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('delete_copy_done_cookie("/cache/recovery/AB_COPY_DONE");');
     script.AppendExtra('');
+    if OPTIONS.mirror_sync:
+      print (" include mirrorscript ")
+      script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      script_mirror.AppendExtra('');
+      script_mirror.Print("Copying  all images"
+                   " from active to inactive slots...")
+      script_mirror.AppendExtra(('copy_all_source_partitions_except() || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script_mirror.AppendExtra('');
+      script_mirror.AddToZipMirror(source_zip, output_zip)
+
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source
@@ -2286,6 +2386,8 @@ def main(argv):
       OPTIONS.payload_signer_args = shlex.split(a)
     elif o == "--system_mount_path":
       OPTIONS.system_mount_path = a
+    elif o == "--mirror_sync":
+      OPTIONS.mirror_sync = True
     else:
       return False
     return True
@@ -2320,7 +2422,8 @@ def main(argv):
                                  "log_diff=",
                                  "payload_signer=",
                                  "payload_signer_args=",
-                                 "system_mount_path="
+                                 "system_mount_path=",
+                                 "mirror_sync"
                              ], extra_option_handler=option_handler)
 
   if len(args) != 2:

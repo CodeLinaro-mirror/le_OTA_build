@@ -188,6 +188,31 @@ OPTIONS.log_diff = None
 OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
+OPTIONS.mirror_sync = False
+
+EMPTYFILE_list = []
+
+def Get_extractedpath(zipname,path):
+    """ Get input zip extracted path"""
+    res      = None
+    keylist  = zipname.split("_")
+    if(len(keylist) != 2):
+        return res
+    else:
+        key = keylist[1].split(".")[0]
+        res = "./target_files_full_ota_" + key + "/" + path
+    return res
+
+def Update_emptyfilelist(entry):
+    """ Update emptyfile list """
+    temp = entry
+    if(temp != None):
+        temp = temp.split("/")
+        op = ""
+        for item in temp:
+            op += "/" + item
+        EMPTYFILE_list.append(op)
+    return 0
 
 def MostPopularKey(d, default):
   """Given a dict, return the key corresponding to the largest
@@ -259,18 +284,32 @@ class ItemSet(object):
       if not line:
         continue
       columns = line.split()
-      name, uid, gid, mode = columns[:4]
       selabel = None
       capabilities = None
 
-      # After the first 4 columns, there are a series of key=value
-      # pairs. Extract out the fields we care about.
-      for element in columns[4:]:
-        key, value = element.split("=")
-        if key == "selabel":
-          selabel = value
-        if key == "capabilities":
-          capabilities = value
+      # Fix for line enteries having space included in the pacakge name
+      breakup  = line.split('0')
+      totalcol = len(columns)
+      if(totalcol==6):
+        name     = columns[totalcol-6]
+        uid      = columns[totalcol-5]
+        gid      = columns[totalcol-4]
+        mode     = columns[totalcol-3]
+        selabel  = columns[totalcol-2].split("=")[1]
+        capabilities      = columns[totalcol-1].split("=")[1]
+      else:
+        uid      = columns[totalcol-5]
+        gid      = columns[totalcol-4]
+        mode     = columns[totalcol-3]
+        selabel  = columns[totalcol-2].split("=")[1]
+        cap      = columns[totalcol-1].split("=")[1]
+        name = ""
+        for item in columns:
+            if(item != '0'):
+                name+=item+" "
+            else:
+                break
+        name = name[:-1]
 
       i = self.ITEMS.get(name, None)
       if i is not None:
@@ -378,7 +417,15 @@ class Item(object):
       if k[3] is not None and count >= best_fmode[0]:
         best_fmode = (count, k[3])
       if k[4] is not None and count >= best_selabel[0]:
-        best_selabel = (count, k[4])
+        temp = k[4]
+        temp = temp.split(":")
+        if(temp[3] is not None and temp[3] == 's0-s15'):
+            # Setting single level selabel for directories/files with multi level selabel.
+            # SetPermissions take care of setting proper level in case of difference.
+            op = temp[0]+ ":" + temp[1] + ":" + temp[2] + ":" + "s0"
+            best_selabel = (count,op)
+        else:
+           best_selabel = (count, k[4])
       if k[5] is not None and count >= best_capabilities[0]:
         best_capabilities = (count, k[5])
     self.best_subtree = ug + (
@@ -415,6 +462,12 @@ class Item(object):
         if item.uid != current[0] or item.gid != current[1] or \
                item.mode != current[3] or item.selabel != current[4] or \
                item.capabilities != current[5]:
+          if(item.selabel != None):
+              temp = item.selabel.split(":")
+              if(temp[3] is not None and temp[3] == 's0-s15'):
+                  # During enforced recovery upgrade, selinux produces
+                  # constraints denials for symblink file with multi level set.
+                  item.selabel = temp[0]+ ":" + temp[1] + ":" + temp[2] + ":" + "s0"
           script.SetPermissions("/"+item.name, item.uid, item.gid,
                                 item.mode, item.selabel, item.capabilities)
 
@@ -448,6 +501,7 @@ def CopyPartitionFiles(itemset, input_zip, output_zip=None, substitute=None):
 
       else:
         import copy
+        import os
         info2 = copy.copy(info)
         fn = info2.filename = partition + "/" + basefilename
         if substitute and fn in substitute and substitute[fn] is None:
@@ -458,10 +512,27 @@ def CopyPartitionFiles(itemset, input_zip, output_zip=None, substitute=None):
           else:
             data = input_zip.read(info.filename)
           if OPTIONS.platform_mode == "linux_embedded" and fn.endswith("/"):
-            #zip does not play nice with empty folders. Create dummy file to make sure folder is saved in archive.
-            info_dummy = copy.copy(info2)
-            info_dummy.filename = info_dummy.filename + "__emptyfile__"
-            output_zip.writestr(info_dummy,data)
+            path   = Get_extractedpath(output_zip.filename,info.filename)
+            # check extracted path not present or not a empty directoy
+            if(path != None and os.path.isdir(path)):
+                flist = os.listdir(path)
+                # if empty directory, add emptyfile for safe
+                # unzip
+                if(len(flist) == 0):
+                    # Empty directory
+                    info_dummy = copy.copy(info2)
+                    fname = info_dummy.filename
+                    Update_emptyfilelist(fname)
+                    info_dummy.filename = info_dummy.filename + "__emptyfile__"
+                    output_zip.writestr(info_dummy,data)
+                    #print("Empty dir",info.filename)
+            else:
+                #zip does not play nice with empty folders. Create dummy file to make sure folder is saved in archive.
+                info_dummy = copy.copy(info2)
+                fname = info_dummy.filename
+                Update_emptyfilelist(fname)
+                info_dummy.filename = info_dummy.filename + "__emptyfile__"
+                output_zip.writestr(info_dummy,data)
           common.ZipWriteStr(output_zip, info2, data)
         if fn.endswith("/"):
           itemset.Get(fn[:-1], is_dir=True)
@@ -538,6 +609,41 @@ def HasRecoveryPatch(target_files_zip):
   return ("SYSTEM/recovery-from-boot.p" in namelist or
           "SYSTEM/etc/recovery.img" in namelist)
 
+# check for an empty file META/boot-incremetal in target.zip
+# if this file is present, incremental boot image is supported in build
+def HasIncrementalBoot(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  if ("META/boot-incremetal" in namelist):
+    return True
+  print (" boot-incr not true check for nad_support ");
+  dict = common.LoadInfoDict(target_files_zip)
+  if (dict.get("le_target_supports_nad", "0") == "1"):
+    print (" nad_support is True ");
+    return True
+  print (" nad_support is False ");
+  return False
+
+
+# if this file is present, incremental boot image is supported in build
+def HasModemSquashImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/modem.img" in namelist)
+
+# if this file is present, telaf will be included in update package
+def HasTelafSquashImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/telaf.img" in namelist)
+
+# enable nonhlos.ubifs full update on firmware volume
+def HasModemUbifsImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/modem.ubifs" in namelist)
+
+# if this file is present, recoveryfs will be included in update package in mirror flow
+def HasRecoveryVolume(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/recoveryfs.img" in namelist)
+
 def HasVendorPartition(target_files_zip):
   try:
     target_files_zip.getinfo("VENDOR/")
@@ -567,7 +673,10 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  assert which in ("system", "vendor")
+  if OPTIONS.nad_update:
+    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs")
+  else:
+    assert which in ("system", "vendor")
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
@@ -725,6 +834,26 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
 
+  if HasModemSquashImage(input_zip):
+    modem_squash_vol_update = True
+  else:
+    modem_squash_vol_update = False
+
+  if HasTelafSquashImage(input_zip):
+    telaf_squash_vol_update = True
+  else:
+    telaf_squash_vol_update = False
+
+  if HasModemUbifsImage(input_zip):
+    modem_ubifs_vol_update = True
+  else:
+    modem_ubifs_vol_update = False
+
+  if HasRecoveryVolume(input_zip):
+    is_recoveryfs_volume_update = True
+  else:
+    is_recoveryfs_volume_update = False
+
   system_items = ItemSet("system", "META/filesystem_config.txt")
   script.ShowProgress(system_progress, 0)
 
@@ -740,6 +869,36 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
+        if OPTIONS.nad_update:
+          system_image_size = system_diff.GetImageSize()
+          print (" system_image_size %s" %(system_image_size))
+
+        # enable full update for modem with squashfs image
+        if modem_squash_vol_update:
+          print (" generating modem update also ")
+          modem_tgt = GetImage("modem", OPTIONS.input_tmp, OPTIONS.info_dict)
+          modem_tgt.ResetFileMap()
+          modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, src=None)
+          modem_image_size = modem_diff.GetImageSize()
+          print (" modem_image_size %s" %(modem_image_size))
+
+        # enable full update for telaf with squashfs image
+        if telaf_squash_vol_update:
+          print (" generating telaf update also ")
+          telaf_tgt = GetImage("telaf", OPTIONS.input_tmp, OPTIONS.info_dict)
+          telaf_tgt.ResetFileMap()
+          telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, src=None)
+          telaf_image_size = telaf_diff.GetImageSize()
+          print (" telaf_image_size %s" %(telaf_image_size))
+
+        # enable full update for recoveryfs with squashfs image
+        if is_recoveryfs_volume_update:
+          print (" generating recoveryfs update also ")
+          recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.input_tmp, OPTIONS.info_dict)
+          recoveryfs_tgt.ResetFileMap()
+          recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, src=None)
+          recoveryfs_image_size = recoveryfs_diff.GetImageSize()
+          print (" recoveryfs_image_size %s" %(recoveryfs_image_size))
 
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
@@ -766,8 +925,25 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                            # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
         script.AppendExtra('');
 
+    if OPTIONS.nad_update:
+      script.AppendExtra('');
+      script.AppendExtra('scan_mtd_partitions() || '
+                     'abort("Failed to scan mtd partitions!");');
+      script.AppendExtra('');
+
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
+        if OPTIONS.nad_update:
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                         'abort("Failed to erase blocks in system volume!");') % system_image_size);
+        if modem_squash_vol_update:
+          modem_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                         'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+        if telaf_squash_vol_update:
+          telaf_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                         'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
 
   else:
     if not dm_verity_nand:
@@ -816,6 +992,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   boot_img = common.GetBootableImage(
       "boot.img", "boot.img", OPTIONS.input_tmp, "BOOT")
 
+  if modem_ubifs_vol_update:
+    modem_ubifs = common.GetBootableImage(
+      "modem.ubifs", "modem.ubifs", OPTIONS.input_tmp, "IMAGES")
+
   if not block_based and not dm_verity_nand:
     def output_sink(fn, data):
       common.ZipWriteStr(output_zip, "recovery/" + fn, data)
@@ -849,6 +1029,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   common.CheckSize(boot_img.data, "boot.img", OPTIONS.info_dict)
   common.ZipWriteStr(output_zip, "boot.img", boot_img.data)
+  # disable modem.ubifs in full update, due to size
+  #if modem_ubifs_vol_update:
+    #common.ZipWriteStr(output_zip, "modem.ubifs", modem_ubifs.data)
 
   script.ShowProgress(0.05, 5)
   if OPTIONS.ab_ota_update:
@@ -866,8 +1049,14 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   script.ShowProgress(0.2, 10)
   device_specific.FullOTA_InstallEnd()
   if not block_based and not dm_verity_nand:
-    script.AppendExtra('run_program("/usr/bin/find", "/",'
-                       '"-name", "__emptyfile__", "-type", "f", "-delete");')
+      # Traverse through recorded history of
+      # __emptyfile__ list and remove
+      for item in EMPTYFILE_list:
+        cmd  = 'run_program("/usr/bin/find", "'
+        cmd += item + '"' 
+        cmd += ', "-maxdepth", "1", '
+        cmd += '"-name", "__emptyfile__", "-type", "f", "-delete");'
+        script.AppendExtra(cmd)
 
   if OPTIONS.extra_script is not None:
     script.AppendExtra(OPTIONS.extra_script)
@@ -900,6 +1089,32 @@ endif;
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
+    if OPTIONS.mirror_sync:
+      print (" include mirrorscript ")
+      script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      script_mirror.AppendExtra('');
+      script_mirror.Print("Copying  all images"
+                   " from active to inactive slots...")
+      script_mirror.AppendExtra(('copy_all_source_partitions_except() || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script_mirror.AppendExtra('');
+      script_mirror.AddToZipMirror(input_zip, output_zip)
+
+  if OPTIONS.nad_update:
+    # disable full of modem.ubifs, due to more size, donot include modem.ubifs in full update
+    #if modem_ubifs_vol_update:
+      #script.AppendExtra('');
+
+      #script.AppendExtra('write_modem_ubifs_image(package_extract_file("modem.ubifs","/tmp/modem.ubifs"), "firmware") || '
+      #                  'abort("Failed to write modem ubifs image!");');
+      #script.AppendExtra('');
+    script.AppendExtra('');
+    script.AppendExtra('set_inactive_slot_as_active() || '
+                       'abort("Failed to set inactive slot as active!");');
+    script.AppendExtra('');
+    print (" set inactive to active slot ")
+    script.Print("NAD update success...")
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -1021,6 +1236,26 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
       type=OPTIONS.device_type,
       platform=OPTIONS.platform_mode)
 
+  if HasModemSquashImage(source_zip):
+    modem_squash_vol_update = True
+  else:
+    modem_squash_vol_update = False
+
+  if HasTelafSquashImage(source_zip):
+    telaf_squash_vol_update = True
+  else:
+    telaf_squash_vol_update = False
+
+  if HasModemUbifsImage(target_zip):
+    modem_ubifs_vol_update = True
+  else:
+    modem_ubifs_vol_update = False
+
+  if HasRecoveryVolume(source_zip):
+    is_recoveryfs_volume_update = True
+  else:
+    is_recoveryfs_volume_update = False
+
   source_fp = CalculateFingerprint(oem_props, oem_dict,
                                    OPTIONS.source_info_dict)
   target_fp = CalculateFingerprint(oem_props, oem_dict,
@@ -1045,6 +1280,21 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   system_src = GetImage("system", OPTIONS.source_tmp, OPTIONS.source_info_dict)
   system_tgt = GetImage("system", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+  if modem_squash_vol_update:
+    modem_src = GetImage("modem", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    modem_tgt = GetImage("modem", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
+  if telaf_squash_vol_update:
+    telaf_src = GetImage("telaf", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    telaf_tgt = GetImage("telaf", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
+  if modem_ubifs_vol_update:
+    modem_ubifs = common.GetBootableImage(
+      "modem.ubifs", "modem.ubifs", OPTIONS.input_tmp, "IMAGES")
+
+  if is_recoveryfs_volume_update:
+    recoveryfs_src = GetImage("recoveryfs", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
   blockimgdiff_version = 1
   if OPTIONS.info_dict:
@@ -1067,6 +1317,33 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
+  if OPTIONS.nad_update:
+    system_image_size = system_diff.GetImageSize()
+    print (" system_image_size %s" %(system_image_size))
+
+  if modem_squash_vol_update:
+    modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    modem_image_size = modem_diff.GetImageSize()
+    print (" modem_image_size %s" %(modem_image_size))
+
+  if telaf_squash_vol_update:
+    telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, telaf_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    telaf_image_size = telaf_diff.GetImageSize()
+    print (" telaf_image_size %s" %(telaf_image_size))
+
+  if is_recoveryfs_volume_update:
+    recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, recoveryfs_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    recoveryfs_image_size = recoveryfs_diff.GetImageSize()
+    print (" recoveryfs_image_size %s" %(recoveryfs_image_size))
 
   if HasVendorPartition(target_zip):
     if not HasVendorPartition(source_zip):
@@ -1173,6 +1450,12 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     script.AppendExtra('write_copy_done_cookie(/cache/recovery/AB_COPY_DONE);');
     script.AppendExtra('');
 
+  if OPTIONS.nad_update:
+    script.AppendExtra('');
+    script.AppendExtra('scan_mtd_partitions() || '
+                   'abort("Failed to scan mtd partitions!");');
+    script.AppendExtra('');
+
   script.Print("Verifying current system...")
 
   device_specific.IncrementalOTA_VerifyBegin()
@@ -1201,6 +1484,10 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
   size = []
   if system_diff:
     size.append(system_diff.required_cache)
+  if modem_squash_vol_update and modem_diff:
+      size.append(modem_diff.required_cache)
+  if telaf_squash_vol_update and telaf_diff:
+      size.append(telaf_diff.required_cache)
   if vendor_diff:
     size.append(vendor_diff.required_cache)
 
@@ -1210,9 +1497,13 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     d = common.Difference(target_boot, source_boot)
     _, _, d = d.ComputePatch()
 
+    # check if incremental boot is enabled
+    has_incremental_boot = HasIncrementalBoot(source_zip)
+    print (" has_incremental_boot: %s ") % (has_incremental_boot)
+
     # MTD devices usually have low free space in cache,
     # so disable incremental upgrade of boot.img on MTD
-    if d is None or OPTIONS.device_type == "MTD":
+    if d is None or ((OPTIONS.device_type == "MTD") and not has_incremental_boot):
       include_full_boot = True
       common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
     else:
@@ -1227,7 +1518,12 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                         (boot_type, boot_device,
                          source_boot.size, source_boot.sha1,
                          target_boot.size, target_boot.sha1))
-      size.append(target_boot.size)
+      # cache check is not used for boot imcremental for nad-prod feature since boot file back up is not used,
+      # nad has dual partitions back is not required
+      if not OPTIONS.nad_update:
+        size.append(target_boot.size)
+      else:
+        print (" skip boot cache check for nad ")
 
   if size:
     script.CacheFreeSpaceCheck(max(size))
@@ -1248,7 +1544,15 @@ else
     script.Comment("Stage 3/3")
 
   # Verify the existing partitions.
+  if OPTIONS.nad_fde:
+    #copy FDE image to /tmp
+    script.AppendExtra('copy_decrypted_image_to_temp("/dev/block/bootdevice/by-name/system") || '
+                     'abort("Failed to copy system FDE image!");');
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if modem_squash_vol_update and modem_diff:
+    modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if telaf_squash_vol_update and telaf_diff:
+    telaf_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
 
@@ -1258,6 +1562,28 @@ else
 
   system_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
+
+  if OPTIONS.nad_update:
+    if OPTIONS.nad_fde:
+      #copy updated /tmp image to partition
+      script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                       'abort("Failed to copy system FDE image!");') % system_image_size);
+
+  if OPTIONS.nad_update:
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                     'abort("Failed to erase blocks in system volume!");') % system_image_size);
+
+  if modem_squash_vol_update and modem_diff:
+    modem_diff.WriteScript(script, output_zip,
+                          progress=0.8 if vendor_diff else 0.9)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                     'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+
+  if telaf_squash_vol_update and telaf_diff:
+    telaf_diff.WriteScript(script, output_zip,
+                          progress=0.81 if vendor_diff else 0.88)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                     'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
 
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
@@ -1314,6 +1640,30 @@ endif;
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('delete_copy_done_cookie("/cache/recovery/AB_COPY_DONE");');
     script.AppendExtra('');
+    if OPTIONS.mirror_sync:
+      print (" include mirrorscript ")
+      script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      script_mirror.AppendExtra('');
+      script_mirror.Print("Copying  all images"
+                   " from active to inactive slots...")
+      script_mirror.AppendExtra(('copy_all_source_partitions_except() || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script_mirror.AppendExtra('');
+      script_mirror.AddToZipMirror(source_zip, output_zip)
+
+  if OPTIONS.nad_update:
+    script.AppendExtra('');
+    script.AppendExtra('set_inactive_slot_as_active() || '
+                       'abort("Failed to set inactive slot as active!");');
+    script.AppendExtra('');
+    if modem_ubifs_vol_update:
+      common.ZipWriteStr(output_zip, "modem.ubifs", modem_ubifs.data)
+      script.AppendExtra('');
+      script.AppendExtra('write_modem_ubifs_image(package_extract_file("modem.ubifs","/tmp/modem.ubifs"), "firmware", "/tmp/modem.ubifs") ||'
+                        'abort("Failed to write modem ubifs image!");');
+      script.AppendExtra('');
+    script.Print("NAD update success...")
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source
@@ -2286,6 +2636,8 @@ def main(argv):
       OPTIONS.payload_signer_args = shlex.split(a)
     elif o == "--system_mount_path":
       OPTIONS.system_mount_path = a
+    elif o == "--mirror_sync":
+      OPTIONS.mirror_sync = True
     else:
       return False
     return True
@@ -2320,7 +2672,8 @@ def main(argv):
                                  "log_diff=",
                                  "payload_signer=",
                                  "payload_signer_args=",
-                                 "system_mount_path="
+                                 "system_mount_path=",
+                                 "mirror_sync"
                              ], extra_option_handler=option_handler)
 
   if len(args) != 2:
@@ -2350,6 +2703,14 @@ def main(argv):
   OPTIONS.ab_ota_update = OPTIONS.info_dict.get("le_target_supports_ab", "0") == "1"
   if OPTIONS.ab_ota_update:
     print ("Generating A/B OTA upgrade package..");
+
+  OPTIONS.nad_update = OPTIONS.info_dict.get("le_target_supports_nad", "0") == "1"
+  if OPTIONS.nad_update:
+    print ("Including  A/B sync for nad..");
+
+  OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"
+  if OPTIONS.nad_fde:
+    print ("FDE is supported..");
 
   if ab_update:
     if OPTIONS.incremental_source is not None:

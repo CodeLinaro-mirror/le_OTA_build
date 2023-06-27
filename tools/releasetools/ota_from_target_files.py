@@ -761,7 +761,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       if not OPTIONS.device_type == "MTD":
         script.Print("Copying blocks of all A/B partitions "
                      "(except system & boot) from active to inactive slots...")
-        script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
+        script.AppendExtra(('copy_all_source_partitions_except("system,boot,vendor_boot,dtbo") || '
                             'abort("E%d: Failed to copy all partitions from '
                             'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
         script.AppendExtra('');

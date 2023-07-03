@@ -623,6 +623,10 @@ def HasIncrementalBoot(target_files_zip):
   print (" nad_support is False ");
   return False
 
+# if this file is present, vm-bootsys will be included in update package
+def HasVMbootsysSquashImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/vm-bootsys.img" in namelist)
 
 # if this file is present, incremental boot image is supported in build
 def HasModemSquashImage(target_files_zip):
@@ -674,7 +678,7 @@ def GetImage(which, tmpdir, info_dict):
   # otherwise they are reconstructed from the individual files.
 
   if OPTIONS.nad_update:
-    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs")
+    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs", "vm-bootsys")
   else:
     assert which in ("system", "vendor")
 
@@ -834,6 +838,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
 
+  if HasVMbootsysSquashImage(input_zip):
+    vmbootsys_squash_vol_update = True
+  else:
+    vmbootsys_squash_vol_update = False
+
   if HasModemSquashImage(input_zip):
     modem_squash_vol_update = True
   else:
@@ -872,6 +881,15 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         if OPTIONS.nad_update:
           system_image_size = system_diff.GetImageSize()
           print (" system_image_size %s" %(system_image_size))
+
+        # enable full update for modem with squashfs image
+        if vmbootsys_squash_vol_update:
+          print (" generating vm-bootsys update also ")
+          vmbootsys_tgt = GetImage("vm-bootsys", OPTIONS.input_tmp, OPTIONS.info_dict)
+          vmbootsys_tgt.ResetFileMap()
+          vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, vmbootsys_tgt, src=None)
+          vmbootsys_image_size = vmbootsys_diff.GetImageSize()
+          print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
 
         # enable full update for modem with squashfs image
         if modem_squash_vol_update:
@@ -936,6 +954,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         if OPTIONS.nad_update:
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
+        if vmbootsys_squash_vol_update:
+          vmbootsys_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vmbootsys", "%d" ) || '
+                         'abort("Failed to erase blocks in firmware volume!");') % vmbootsys_image_size);
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
@@ -1236,6 +1258,12 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
       type=OPTIONS.device_type,
       platform=OPTIONS.platform_mode)
 
+
+  if HasVMbootsysSquashImage(source_zip):
+    vmbootsys_squash_vol_update = True
+  else:
+    vmbootsys_squash_vol_update = False
+
   if HasModemSquashImage(source_zip):
     modem_squash_vol_update = True
   else:
@@ -1320,6 +1348,14 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   if OPTIONS.nad_update:
     system_image_size = system_diff.GetImageSize()
     print (" system_image_size %s" %(system_image_size))
+
+  if vmbootsys_squash_vol_update:
+    vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, modem_tgt, vmbootsys_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    vmbootsys_image_size = modem_diff.GetImageSize()
+    print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
 
   if modem_squash_vol_update:
     modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
@@ -1484,6 +1520,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
   size = []
   if system_diff:
     size.append(system_diff.required_cache)
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+      size.append(vmbootsys_diff.required_cache)
   if modem_squash_vol_update and modem_diff:
       size.append(modem_diff.required_cache)
   if telaf_squash_vol_update and telaf_diff:

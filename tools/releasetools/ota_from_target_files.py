@@ -14,6 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#Changes from Qualcomm Innovation Center are provided under the following
+#license: Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+#SPDX-License-Identifier: BSD-3-Clause-Clear
+
+
 """
 Given a target-files zipfile, produces an OTA package that installs
 that build.  An incremental OTA is produced if -i is given, otherwise
@@ -807,7 +812,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     
     # If Full OTA is for ubunt, the Full OTA will not upgrade
     # the system.img
-    if not OPTIONS.ubuntu_based:
+    if not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC":
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
@@ -837,8 +842,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                            # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
         script.AppendExtra('');
 
-    if not OPTIONS.ubuntu_based:
-        system_diff.WriteScript(script, output_zip)
+    if not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC":
+      system_diff.WriteScript(script, output_zip)
 
   else:
     if not dm_verity_nand:

@@ -11,6 +11,9 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+#Changes from Qualcomm Innovation Center are provided under the following license:
+#Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+#SPDX-License-Identifier: BSD-3-Clause-Clear
 
 import copy
 import errno
@@ -276,7 +279,7 @@ def LoadInfoDict(input_file, input_dir=None):
   else:
     d["fstab"] = None
 
-  d["build.prop"] = LoadBuildProp(read_helper)
+  #d["build.prop"] = LoadBuildProp(read_helper)
   return d
 
 def LoadBuildProp(read_helper):

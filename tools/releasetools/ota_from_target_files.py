@@ -865,7 +865,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     
     # If Full OTA is for ubunt, the Full OTA will not upgrade
     # the system.img
-    if not OPTIONS.ubuntu_based:
+    if not OPTIONS.ubuntu_based and not dm_verity_nand:
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
@@ -931,7 +931,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                      'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('');
 
-    if not OPTIONS.ubuntu_based:
+    if not OPTIONS.ubuntu_based and not dm_verity_nand:
         system_diff.WriteScript(script, output_zip)
         if OPTIONS.nad_update:
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '

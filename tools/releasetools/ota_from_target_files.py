@@ -14,6 +14,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+#Changes from Qualcomm Innovation Center are provided under the following
+#license: Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+#SPDX-License-Identifier: BSD-3-Clause-Clear
+
+
 """
 Given a target-files zipfile, produces an OTA package that installs
 that build.  An incremental OTA is produced if -i is given, otherwise
@@ -147,6 +152,7 @@ import subprocess
 import shlex
 import tempfile
 import zipfile
+import errno
 
 import common
 from common import ErrorCode
@@ -171,6 +177,7 @@ if OPTIONS.worker_threads == 0:
 OPTIONS.two_step = False
 OPTIONS.no_signing = False
 OPTIONS.block_based = False
+OPTIONS.img_by_img = False
 OPTIONS.ubuntu_based = False
 OPTIONS.updater_binary = None
 OPTIONS.oem_source = None
@@ -685,7 +692,16 @@ def WriteFullOTAPackage(input_zip, output_zip):
   # change very often. Similarly for fstab, it might have changed
   # in the target build.
   script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
-
+  images_to_upgrade = []
+  img_by_img = OPTIONS.img_by_img
+  if img_by_img:
+    try:
+      fd = open('images_to_upgrade.txt','r')
+    except IOError as e:
+      if e.errno == errno.ENOENT:
+        raise KeyError("images_to_upgrade.txt")
+    lines = fd.readlines()
+    images_to_upgrade = ''.join(lines).rstrip().split('\n')
   oem_props = OPTIONS.info_dict.get("oem_fingerprint_properties")
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
   dm_verity_nand = OPTIONS.info_dict.get("dm_verity_nand", "0") == "1"
@@ -719,7 +735,6 @@ def WriteFullOTAPackage(input_zip, output_zip):
 
   has_recovery_patch = HasRecoveryPatch(input_zip)
   block_based = OPTIONS.block_based
-
   metadata["ota-type"] = "BLOCK" if block_based else "FILE"
 
   if not OPTIONS.omit_prereq:
@@ -807,7 +822,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     
     # If Full OTA is for ubunt, the Full OTA will not upgrade
     # the system.img
-    if not OPTIONS.ubuntu_based:
+    if not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC":
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
@@ -837,8 +852,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                            # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
         script.AppendExtra('');
 
-    if not OPTIONS.ubuntu_based:
-        system_diff.WriteScript(script, output_zip)
+    if not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC":
+      system_diff.WriteScript(script, output_zip)
 
   else:
     if not dm_verity_nand:
@@ -884,8 +899,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       symlinks = CopyPartitionFiles(system_items, input_zip, output_zip)
       script.MakeSymlinks(symlinks)
 
-  boot_img = common.GetBootableImage(
-      "boot.img", "boot.img", OPTIONS.input_tmp, "BOOT")
+  if img_by_img and "boot.img" in images_to_upgrade or not img_by_img:
+      boot_img = common.GetBootableImage(
+          "boot.img", "boot.img", OPTIONS.input_tmp, "BOOT")
 
   if not block_based and not dm_verity_nand:
     def output_sink(fn, data):
@@ -918,20 +934,22 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       vendor_items.GetMetadata(input_zip)
       vendor_items.Get("vendor").SetPermissions(script)
 
-  common.CheckSize(boot_img.data, "boot.img", OPTIONS.info_dict)
-  common.ZipWriteStr(output_zip, "boot.img", boot_img.data)
+  if img_by_img and "boot.img" in images_to_upgrade or not img_by_img:
+    common.CheckSize(boot_img.data, "boot.img", OPTIONS.info_dict)
+    common.ZipWriteStr(output_zip, "boot.img", boot_img.data)
 
   script.ShowProgress(0.05, 5)
   if OPTIONS.ab_ota_update:
     script.WriteRawImage("/boot", "boot.img", None, boot_img.size, boot_img.sha1)
-  else:
+  elif img_by_img and "boot.img" in images_to_upgrade or not img_by_img:
     script.WriteRawImage("/boot", "boot.img")
 
   if dm_verity_nand:
-    system_img = common.GetBootableImage(
-        "system.img", "system.img", OPTIONS.input_tmp, "")
-    common.ZipWriteStr(output_zip, "system.img", system_img.data)
-    script.AppendExtra('update_rootfs_ubi_volume() || '
+    if img_by_img and "system.img" in images_to_upgrade or not img_by_img:
+      system_img = common.GetBootableImage(
+          "system.img", "system.img", OPTIONS.input_tmp, "")
+      common.ZipWriteStr(output_zip, "system.img", system_img.data)
+      script.AppendExtra('update_rootfs_ubi_volume() || '
                        'abort("Failed to update rootfs ubi volume!");')
 
   script.ShowProgress(0.2, 10)
@@ -2359,6 +2377,8 @@ def main(argv):
       OPTIONS.verify = True
     elif o == "--block":
       OPTIONS.block_based = True
+    elif o == "--img_by_img":
+      OPTIONS.img_by_img = True
     elif o == "--ubuntu":
       OPTIONS.ubuntu_based = True
     elif o in ("-b", "--binary"):
@@ -2409,6 +2429,7 @@ def main(argv):
                                  "two_step",
                                  "no_signing",
                                  "block",
+                                 "img_by_img",
                                  "ubuntu",
                                  "binary=",
                                  "oem_settings=",

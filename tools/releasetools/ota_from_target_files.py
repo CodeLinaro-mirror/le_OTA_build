@@ -778,6 +778,21 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_diff.WriteScript(script, output_zip)
         if vendor_dlkm_exist:
             vdlkm_diff.WriteScript(script, output_zip)
+        if OPTIONS.nad_update:
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                         'abort("Failed to erase blocks in system volume!");') % system_image_size);
+        if vmbootsys_squash_vol_update:
+          vmbootsys_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
+                         'abort("Failed to erase blocks in firmware volume!");') % vmbootsys_image_size);
+        if modem_squash_vol_update:
+          modem_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                         'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+        if telaf_squash_vol_update:
+          telaf_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                         'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
 
   else:
     if not dm_verity_nand:
@@ -1060,6 +1075,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
     vendor_dlkm_src = GetImage("vendor_dlkm", OPTIONS.source_tmp, OPTIONS.source_info_dict)
     vendor_dlkm_tgt = GetImage("vendor_dlkm", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
+  if vmbootsys_squash_vol_update:
+    vmbootsys_src = GetImage("vm-bootsys", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    vmbootsys_tgt = GetImage("vm-bootsys", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
   blockimgdiff_version = 1
   if OPTIONS.info_dict:
     blockimgdiff_version = max(
@@ -1087,6 +1106,41 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
 
+  if OPTIONS.nad_update:
+    system_image_size = system_diff.GetImageSize()
+    print (" system_image_size %s" %(system_image_size))
+
+  if vmbootsys_squash_vol_update:
+    vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, vmbootsys_tgt, vmbootsys_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    vmbootsys_image_size = vmbootsys_diff.GetImageSize()
+    print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
+
+  if modem_squash_vol_update:
+    modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    modem_image_size = modem_diff.GetImageSize()
+    print (" modem_image_size %s" %(modem_image_size))
+
+  if telaf_squash_vol_update:
+    telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, telaf_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    telaf_image_size = telaf_diff.GetImageSize()
+    print (" telaf_image_size %s" %(telaf_image_size))
+
+  if is_recoveryfs_volume_update:
+    recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, recoveryfs_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    recoveryfs_image_size = recoveryfs_diff.GetImageSize()
+    print (" recoveryfs_image_size %s" %(recoveryfs_image_size))
 
   if HasVendorPartition(target_zip):
     if not HasVendorPartition(source_zip):
@@ -1271,6 +1325,12 @@ else
 
   # Verify the existing partitions.
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if modem_squash_vol_update and modem_diff:
+    modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if telaf_squash_vol_update and telaf_diff:
+    telaf_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+    vmbootsys_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_dlkm_exist and vdlkm_diff:
@@ -1281,7 +1341,36 @@ else
   device_specific.IncrementalOTA_InstallBegin()
 
   system_diff.WriteScript(script, output_zip,
+                          progress=0.7 if vendor_diff else 0.8)
+
+  if OPTIONS.nad_update:
+    if OPTIONS.nad_fde:
+      #copy updated /tmp image to partition
+      script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                       'abort("Failed to copy system FDE image!");') % system_image_size);
+
+  if OPTIONS.nad_update:
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                     'abort("Failed to erase blocks in system volume!");') % system_image_size);
+
+  if modem_squash_vol_update and modem_diff:
+    modem_diff.WriteScript(script, output_zip,
+                          progress=0.8 if vendor_diff else 0.85)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                     'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+
+  if telaf_squash_vol_update and telaf_diff:
+    telaf_diff.WriteScript(script, output_zip,
+                          progress=0.85 if vendor_diff else 0.88)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                     'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
+
+
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+    vmbootsys_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
+                     'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
 
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)

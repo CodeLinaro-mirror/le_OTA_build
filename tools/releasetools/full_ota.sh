@@ -71,6 +71,8 @@ if [ "$#" -gt 4 ]; then
            system_path="${allopts[${i}]}"
        elif [ "${allopts[${i}]}" = "--sign" ]; then
            sign_ota_package="${allopts[${i}]}"
+       elif [ "${allopts[${i}]}" = "--img_by_img" ]; then
+           img_by_img="${allopts[${i}]}"
        else
            FSCONFIGFOPTS=$FSCONFIGFOPTS${allopts[${i}]}" "
        fi
@@ -113,8 +115,7 @@ fi
 
 cd $target_files && zip -q $1 META/*filesystem_config.txt SYSTEM/build.prop BOOT/RAMDISK/empty && cd ..
 
-
-$python_version ota_from_target_files $block_based $ubuntu -n -v -d $device_type -p . -m linux_embedded --no_signing --system_mount_path $system_path $1 update_$3.zip > ota_debug.txt 2>&1
+$python_version ota_from_target_files $block_based $img_by_img $ubuntu -n -v -d $device_type -p . -m linux_embedded --no_signing --system_mount_path $system_path $1 update_$3.zip > ota_debug.txt 2>&1
 
 if [[ $? = 0 ]]; then
     if [ "${sign_ota_package}" = "--sign" ]; then

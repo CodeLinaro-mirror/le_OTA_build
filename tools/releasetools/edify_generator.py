@@ -339,6 +339,8 @@ class EdifyGenerator(object):
             cmd += (' && block_device_check("%s", "%d", "%s")) ||\n') \
                 % (args['device'], fn_size, fn_sha1)
             cmd += '  abort("Failed to extract %(fn)s to %(device)s");' % args
+          else:
+            cmd += ';'
         else:
           cmd += ';'
         self.script.append(cmd)

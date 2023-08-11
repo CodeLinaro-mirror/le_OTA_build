@@ -761,7 +761,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       if not OPTIONS.device_type == "MTD":
         script.Print("Copying blocks of all A/B partitions "
                      "(except system & boot) from active to inactive slots...")
-        script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
+        script.AppendExtra(('copy_all_source_partitions_except("system,boot,vendor_boot,dtbo") || '
                             'abort("E%d: Failed to copy all partitions from '
                             'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
         script.AppendExtra('');
@@ -1055,6 +1055,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   system_src = GetImage("system", OPTIONS.source_tmp, OPTIONS.source_info_dict)
   system_tgt = GetImage("system", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+  vendor_dlkm_exist = OPTIONS.info_dict.get("vendor_dlkm_exist", "0") == "1"
+  if vendor_dlkm_exist:
+    vendor_dlkm_src = GetImage("vendor_dlkm", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    vendor_dlkm_tgt = GetImage("vendor_dlkm", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
   blockimgdiff_version = 1
   if OPTIONS.info_dict:
@@ -1077,6 +1081,12 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
+  if vendor_dlkm_exist:
+    vdlkm_diff = common.BlockDifference("vendor_dlkm", "/lib/modules/", vendor_dlkm_tgt, vendor_dlkm_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+
 
   if HasVendorPartition(target_zip):
     if not HasVendorPartition(source_zip):
@@ -1164,7 +1174,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     script.Print("Copying blocks of all A/B partitions "
                  "from active to inactive slots...")
     if not OPTIONS.device_type == "MTD":
-      script.AppendExtra(('copy_all_source_partitions_except() || '
+      script.AppendExtra(('copy_all_source_partitions_except(vendor_boot) || '
                           'abort("E%d: Failed to copy all partitions from '
                           'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
     if OPTIONS.device_type == "MTD":
@@ -1213,6 +1223,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     size.append(system_diff.required_cache)
   if vendor_diff:
     size.append(vendor_diff.required_cache)
+  if vdlkm_diff:
+    size.append(vdlkm_diff.required_cache)
 
   if updating_boot:
     boot_type, boot_device = common.GetTypeAndDevice(
@@ -1261,6 +1273,8 @@ else
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if vdlkm_diff:
+    vdlkm_diff.WriteVerifyScript(script, touched_blocks_only=True)
 
   script.Comment("---- start making changes here ----")
 
@@ -1271,6 +1285,8 @@ else
 
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
+  if vdlkm_diff:
+    vdlkm_diff.WriteScript(script, output_zip, progress=0.1)
 
   if OPTIONS.two_step:
     common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
@@ -1402,6 +1418,11 @@ def WriteVerifyPackage(input_zip, output_zip):
     vendor_tgt.ResetFileMap()
     vendor_diff = common.BlockDifference("vendor", vendor_tgt, src=None)
     vendor_diff.WriteStrictVerifyScript(script)
+  if vendor_dlkm_exist:
+    vdlkm_tgt = GetImage("vendor_dlkm", OPTIONS.input_tmp, OPTIONS.info_dict)
+    vdlkm_tgt.ResetFileMap()
+    vdlkm_diff = common.BlockDifference("vendor_dlkm", vdlkm_tgt, src=None)
+    vdlkm_diff.WriteStrictVerifyScript(script)
 
   # Device specific partitions, such as radio, bootloader and etc.
   device_specific.VerifyOTA_Assertions()

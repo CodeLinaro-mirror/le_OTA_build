@@ -297,7 +297,7 @@ class ItemSet(object):
         mode     = columns[totalcol-3]
         selabel  = columns[totalcol-2].split("=")[1]
         capabilities      = columns[totalcol-1].split("=")[1]
-      else:
+      elif(totalcol>6):
         uid      = columns[totalcol-5]
         gid      = columns[totalcol-4]
         mode     = columns[totalcol-3]
@@ -310,6 +310,16 @@ class ItemSet(object):
             else:
                 break
         name = name[:-1]
+      else:
+        # After the first 4 columns, there are a series of key=value
+        # pairs. Extract out the fields we care about.
+        name, uid, gid, mode = columns[:4]
+        for element in columns[4:]:
+          key, value = element.split("=")
+          if key == "selabel":
+            selabel = value
+          if key == "capabilities":
+            capabilities = value
 
       i = self.ITEMS.get(name, None)
       if i is not None:

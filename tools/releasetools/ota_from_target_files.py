@@ -189,6 +189,7 @@ OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
 OPTIONS.mirror_sync = False
+OPTIONS.install_only = False
 
 EMPTYFILE_list = []
 
@@ -1115,7 +1116,9 @@ reboot_now("%(bcb_dev)s", "");
 endif;
 endif;
 """ % bcb_dev)
-
+  if OPTIONS.install_only:
+    script_install = script
+    script_install.AddToZipInstall(input_zip, output_zip)
   if OPTIONS.ab_ota_update:
     script.AppendExtra('');
     script.AppendExtra('set_inactive_slot_as_active() || '
@@ -1150,6 +1153,7 @@ endif;
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
+
   metadata["ota-required-cache"] = str(script.required_cache)
   WriteMetadata(metadata, output_zip)
 
@@ -2699,6 +2703,8 @@ def main(argv):
       OPTIONS.system_mount_path = a
     elif o == "--mirror_sync":
       OPTIONS.mirror_sync = True
+    elif o == "--install_only":
+      OPTIONS.install_only = True
     else:
       return False
     return True
@@ -2734,7 +2740,8 @@ def main(argv):
                                  "payload_signer=",
                                  "payload_signer_args=",
                                  "system_mount_path=",
-                                 "mirror_sync"
+                                 "mirror_sync",
+                                 "install_only"
                              ], extra_option_handler=option_handler)
 
   if len(args) != 2:

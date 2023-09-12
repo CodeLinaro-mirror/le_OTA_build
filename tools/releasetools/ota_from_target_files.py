@@ -1223,7 +1223,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     size.append(system_diff.required_cache)
   if vendor_diff:
     size.append(vendor_diff.required_cache)
-  if vdlkm_diff:
+  if vendor_dlkm_exist and vdlkm_diff:
     size.append(vdlkm_diff.required_cache)
 
   if updating_boot:
@@ -1273,7 +1273,7 @@ else
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
-  if vdlkm_diff:
+  if vendor_dlkm_exist and vdlkm_diff:
     vdlkm_diff.WriteVerifyScript(script, touched_blocks_only=True)
 
   script.Comment("---- start making changes here ----")
@@ -1285,7 +1285,7 @@ else
 
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
-  if vdlkm_diff:
+  if vendor_dlkm_exist and vdlkm_diff:
     vdlkm_diff.WriteScript(script, output_zip, progress=0.1)
 
   if OPTIONS.two_step:

@@ -68,6 +68,7 @@ class Options(object):
     self.platform_mode = 'android'
     # Assume non A/B by default
     self.ab_ota_update = False
+    self.system_mount_path = '/system'
 
 
 OPTIONS = Options()
@@ -396,8 +397,8 @@ def LoadRecoveryFSTab(read_helper, fstab_version, recovery_fstab_path,
   # system. Other areas assume system is always at "/system" so point /system
   # at /.
   if system_root_image:
-    assert not d.has_key("/system") and d.has_key("/")
-    d["/system"] = d["/"]
+    assert not d.has_key(OPTIONS.system_mount_path) and d.has_key("/")
+    d[OPTIONS.system_mount_path] = d["/"]
   return d
 
 
@@ -1369,13 +1370,14 @@ def ComputeDifferences(diffs):
 
 
 class BlockDifference(object):
-  def __init__(self, partition, tgt, src=None, check_first_block=False,
+  def __init__(self, partition, system_mount_point,tgt, src=None, check_first_block=False,
                version=None, disable_imgdiff=False):
     self.tgt = tgt
     self.src = src
     self.partition = partition
     self.check_first_block = check_first_block
     self.disable_imgdiff = disable_imgdiff
+    self.tgt_image_size = []
 
     if version is None:
       version = 1
@@ -1395,16 +1397,24 @@ class BlockDifference(object):
     self._required_cache = b.max_stashed_size
     self.touched_src_ranges = b.touched_src_ranges
     self.touched_src_sha1 = b.touched_src_sha1
+    print ("source range %s" %(b.tgt_image_size))
+    if (b.tgt_image_size):
+      self.tgt_image_size = b.tgt_image_size
+
+    if system_mount_point == '/':
+      partition = ''
 
     if src is None:
       _, self.device = GetTypeAndDevice("/" + partition, OPTIONS.info_dict)
     else:
-      _, self.device = GetTypeAndDevice("/" + partition,
-                                        OPTIONS.source_info_dict)
+      _, self.device = GetTypeAndDevice("/" + partition, OPTIONS.source_info_dict)
 
   @property
   def required_cache(self):
     return self._required_cache
+
+  def GetImageSize(self):
+    return self.tgt_image_size
 
   def WriteScript(self, script, output_zip, progress=None):
     if not self.src:
@@ -1673,7 +1683,12 @@ def MakeRecoveryPatch(input_dir, output_sink, recovery_img, boot_img,
     if os.path.exists(path):
       diff_program.append("-b")
       diff_program.append(path)
-      bonus_args = "-b /system/etc/recovery-resource.dat"
+      bonus_args = "-b "
+      bonus_args += OPTIONS.system_mount_path
+      if OPTIONS.system_mount_path.endswith('/'):
+        bonus_args += "etc/recovery-resource.dat"
+      else:
+        bonus_args += "/etc/recovery-resource.dat"
     else:
       bonus_args = ""
 
@@ -1689,21 +1704,26 @@ def MakeRecoveryPatch(input_dir, output_sink, recovery_img, boot_img,
   except KeyError:
     return
 
+  mount_point = OPTIONS.system_mount_path
+  if not OPTIONS.system_mount_path.endswith('/'):
+    mount_point += '/'
+
   if full_recovery_image:
-    sh = """#!/system/bin/sh
+    sh = """#!%(system_path)sbin/sh
 if ! applypatch -c %(type)s:%(device)s:%(size)d:%(sha1)s; then
-  applypatch /system/etc/recovery.img %(type)s:%(device)s %(sha1)s %(size)d && log -t recovery "Installing new recovery image: succeeded" || log -t recovery "Installing new recovery image: failed"
+  applypatch %(system_path)setc/recovery.img %(type)s:%(device)s %(sha1)s %(size)d && log -t recovery "Installing new recovery image: succeeded" || log -t recovery "Installing new recovery image: failed"
 else
   log -t recovery "Recovery image already installed"
 fi
 """ % {'type': recovery_type,
        'device': recovery_device,
        'sha1': recovery_img.sha1,
-       'size': recovery_img.size}
+       'size': recovery_img.size,
+       'system_path': mount_point}
   else:
-    sh = """#!/system/bin/sh
+    sh = """#!%(system_path)sbin/sh
 if ! applypatch -c %(recovery_type)s:%(recovery_device)s:%(recovery_size)d:%(recovery_sha1)s; then
-  applypatch %(bonus_args)s %(boot_type)s:%(boot_device)s:%(boot_size)d:%(boot_sha1)s %(recovery_type)s:%(recovery_device)s %(recovery_sha1)s %(recovery_size)d %(boot_sha1)s:/system/recovery-from-boot.p && log -t recovery "Installing new recovery image: succeeded" || log -t recovery "Installing new recovery image: failed"
+  applypatch %(bonus_args)s %(boot_type)s:%(boot_device)s:%(boot_size)d:%(boot_sha1)s %(recovery_type)s:%(recovery_device)s %(recovery_sha1)s %(recovery_size)d %(boot_sha1)s:%(system_path)srecovery-from-boot.p && log -t recovery "Installing new recovery image: succeeded" || log -t recovery "Installing new recovery image: failed"
 else
   log -t recovery "Recovery image already installed"
 fi
@@ -1715,7 +1735,8 @@ fi
        'boot_device': boot_device,
        'recovery_type': recovery_type,
        'recovery_device': recovery_device,
-       'bonus_args': bonus_args}
+       'bonus_args': bonus_args,
+       'system_path': mount_point}
 
   # The install script location moved from /system/etc to /system/bin
   # in the L release.  Parse init.*.rc files to find out where the
@@ -1734,7 +1755,7 @@ fi
 
     with open(os.path.join(init_rc_dir, init_rc_file)) as f:
       for line in f:
-        m = re.match(r"^service flash_recovery /system/(\S+)\s*$", line)
+        m = re.match(r"^service flash_recovery %(system_path)s(\S+)\s*$" % {'system_path': mount_point}, line)
         if m:
           sh_location = m.group(1)
           found = True

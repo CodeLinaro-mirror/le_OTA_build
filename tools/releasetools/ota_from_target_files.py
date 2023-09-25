@@ -836,13 +836,12 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       script.AppendExtra('set_inactive_slot_as_unbootable() || '
                          'abort("Failed to set inactive slot as unbootable!");');
       script.AppendExtra('');
-      if not OPTIONS.device_type == "MTD":
-        script.Print("Copying blocks of all A/B partitions "
-                     "(except system & boot) from active to inactive slots...")
-        script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
-                            'abort("E%d: Failed to copy all partitions from '
-                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-        script.AppendExtra('');
+      script.Print("Copying blocks of all A/B partitions "
+                   "(except system & boot) from active to inactive slots...")
+      script.AppendExtra(('copy_all_source_partitions_except("system,boot") || '
+                          'abort("E%d: Failed to copy all partitions from '
+                          'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script.AppendExtra('');
       if OPTIONS.device_type == "MTD":
         script.AppendExtra('');
         script.AppendExtra('scan_mtd_partitions() || '

@@ -966,7 +966,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
         if vmbootsys_squash_vol_update:
           vmbootsys_diff.WriteScript(script, output_zip)
-          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vmbootsys", "%d" ) || '
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
                          'abort("Failed to erase blocks in firmware volume!");') % vmbootsys_image_size);
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
@@ -1334,6 +1334,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
     recoveryfs_src = GetImage("recoveryfs", OPTIONS.source_tmp, OPTIONS.source_info_dict)
     recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
+  if vmbootsys_squash_vol_update:
+    vmbootsys_src = GetImage("vm-bootsys", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    vmbootsys_tgt = GetImage("vm-bootsys", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
   blockimgdiff_version = 1
   if OPTIONS.info_dict:
     blockimgdiff_version = max(
@@ -1360,11 +1364,11 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
     print (" system_image_size %s" %(system_image_size))
 
   if vmbootsys_squash_vol_update:
-    vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, modem_tgt, vmbootsys_src,
+    vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, vmbootsys_tgt, vmbootsys_src,
                                        check_first_block,
                                        version=blockimgdiff_version,
                                        disable_imgdiff=disable_imgdiff)
-    vmbootsys_image_size = modem_diff.GetImageSize()
+    vmbootsys_image_size = vmbootsys_diff.GetImageSize()
     print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
 
   if modem_squash_vol_update:
@@ -1601,6 +1605,8 @@ else
     modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if telaf_squash_vol_update and telaf_diff:
     telaf_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+    vmbootsys_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
 
@@ -1609,7 +1615,7 @@ else
   device_specific.IncrementalOTA_InstallBegin()
 
   system_diff.WriteScript(script, output_zip,
-                          progress=0.8 if vendor_diff else 0.9)
+                          progress=0.7 if vendor_diff else 0.8)
 
   if OPTIONS.nad_update:
     if OPTIONS.nad_fde:
@@ -1623,15 +1629,22 @@ else
 
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
-                          progress=0.8 if vendor_diff else 0.9)
+                          progress=0.8 if vendor_diff else 0.85)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                      'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
 
   if telaf_squash_vol_update and telaf_diff:
     telaf_diff.WriteScript(script, output_zip,
-                          progress=0.81 if vendor_diff else 0.88)
+                          progress=0.85 if vendor_diff else 0.88)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                      'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
+
+
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+    vmbootsys_diff.WriteScript(script, output_zip,
+                          progress=0.8 if vendor_diff else 0.9)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
+                     'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
 
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)

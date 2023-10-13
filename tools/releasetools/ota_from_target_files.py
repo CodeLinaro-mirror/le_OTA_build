@@ -297,7 +297,7 @@ class ItemSet(object):
         mode     = columns[totalcol-3]
         selabel  = columns[totalcol-2].split("=")[1]
         capabilities      = columns[totalcol-1].split("=")[1]
-      else:
+      elif(totalcol>6):
         uid      = columns[totalcol-5]
         gid      = columns[totalcol-4]
         mode     = columns[totalcol-3]
@@ -310,6 +310,16 @@ class ItemSet(object):
             else:
                 break
         name = name[:-1]
+      else:
+        # After the first 4 columns, there are a series of key=value
+        # pairs. Extract out the fields we care about.
+        name, uid, gid, mode = columns[:4]
+        for element in columns[4:]:
+          key, value = element.split("=")
+          if key == "selabel":
+            selabel = value
+          if key == "capabilities":
+            capabilities = value
 
       i = self.ITEMS.get(name, None)
       if i is not None:
@@ -623,6 +633,10 @@ def HasIncrementalBoot(target_files_zip):
   print (" nad_support is False ");
   return False
 
+# if this file is present, vm-bootsys will be included in update package
+def HasVMbootsysSquashImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/vm-bootsys.img" in namelist)
 
 # if this file is present, incremental boot image is supported in build
 def HasModemSquashImage(target_files_zip):
@@ -674,7 +688,7 @@ def GetImage(which, tmpdir, info_dict):
   # otherwise they are reconstructed from the individual files.
 
   if OPTIONS.nad_update:
-    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs")
+    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs", "vm-bootsys")
   else:
     assert which in ("system", "vendor")
 
@@ -834,6 +848,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
 
+  if HasVMbootsysSquashImage(input_zip):
+    vmbootsys_squash_vol_update = True
+  else:
+    vmbootsys_squash_vol_update = False
+
   if HasModemSquashImage(input_zip):
     modem_squash_vol_update = True
   else:
@@ -865,13 +884,22 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     
     # If Full OTA is for ubunt, the Full OTA will not upgrade
     # the system.img
-    if not OPTIONS.ubuntu_based:
+    if not OPTIONS.ubuntu_based and not dm_verity_nand:
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
         if OPTIONS.nad_update:
           system_image_size = system_diff.GetImageSize()
           print (" system_image_size %s" %(system_image_size))
+
+        # enable full update for modem with squashfs image
+        if vmbootsys_squash_vol_update:
+          print (" generating vm-bootsys update also ")
+          vmbootsys_tgt = GetImage("vm-bootsys", OPTIONS.input_tmp, OPTIONS.info_dict)
+          vmbootsys_tgt.ResetFileMap()
+          vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, vmbootsys_tgt, src=None)
+          vmbootsys_image_size = vmbootsys_diff.GetImageSize()
+          print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
 
         # enable full update for modem with squashfs image
         if modem_squash_vol_update:
@@ -931,11 +959,15 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                      'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('');
 
-    if not OPTIONS.ubuntu_based:
+    if not OPTIONS.ubuntu_based and not dm_verity_nand:
         system_diff.WriteScript(script, output_zip)
         if OPTIONS.nad_update:
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
+        if vmbootsys_squash_vol_update:
+          vmbootsys_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
+                         'abort("Failed to erase blocks in firmware volume!");') % vmbootsys_image_size);
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
@@ -1236,6 +1268,12 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
       type=OPTIONS.device_type,
       platform=OPTIONS.platform_mode)
 
+
+  if HasVMbootsysSquashImage(source_zip):
+    vmbootsys_squash_vol_update = True
+  else:
+    vmbootsys_squash_vol_update = False
+
   if HasModemSquashImage(source_zip):
     modem_squash_vol_update = True
   else:
@@ -1296,6 +1334,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
     recoveryfs_src = GetImage("recoveryfs", OPTIONS.source_tmp, OPTIONS.source_info_dict)
     recoveryfs_tgt = GetImage("recoveryfs", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
+  if vmbootsys_squash_vol_update:
+    vmbootsys_src = GetImage("vm-bootsys", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    vmbootsys_tgt = GetImage("vm-bootsys", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
   blockimgdiff_version = 1
   if OPTIONS.info_dict:
     blockimgdiff_version = max(
@@ -1320,6 +1362,14 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   if OPTIONS.nad_update:
     system_image_size = system_diff.GetImageSize()
     print (" system_image_size %s" %(system_image_size))
+
+  if vmbootsys_squash_vol_update:
+    vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, vmbootsys_tgt, vmbootsys_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    vmbootsys_image_size = vmbootsys_diff.GetImageSize()
+    print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
 
   if modem_squash_vol_update:
     modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
@@ -1484,6 +1534,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
   size = []
   if system_diff:
     size.append(system_diff.required_cache)
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+      size.append(vmbootsys_diff.required_cache)
   if modem_squash_vol_update and modem_diff:
       size.append(modem_diff.required_cache)
   if telaf_squash_vol_update and telaf_diff:
@@ -1553,6 +1605,8 @@ else
     modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if telaf_squash_vol_update and telaf_diff:
     telaf_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+    vmbootsys_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
 
@@ -1561,7 +1615,7 @@ else
   device_specific.IncrementalOTA_InstallBegin()
 
   system_diff.WriteScript(script, output_zip,
-                          progress=0.8 if vendor_diff else 0.9)
+                          progress=0.7 if vendor_diff else 0.8)
 
   if OPTIONS.nad_update:
     if OPTIONS.nad_fde:
@@ -1575,15 +1629,22 @@ else
 
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
-                          progress=0.8 if vendor_diff else 0.9)
+                          progress=0.8 if vendor_diff else 0.85)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                      'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
 
   if telaf_squash_vol_update and telaf_diff:
     telaf_diff.WriteScript(script, output_zip,
-                          progress=0.81 if vendor_diff else 0.88)
+                          progress=0.85 if vendor_diff else 0.88)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                      'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
+
+
+  if vmbootsys_squash_vol_update and vmbootsys_diff:
+    vmbootsys_diff.WriteScript(script, output_zip,
+                          progress=0.8 if vendor_diff else 0.9)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
+                     'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
 
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)

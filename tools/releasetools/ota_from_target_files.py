@@ -997,6 +997,10 @@ endif;
     if OPTIONS.mirror_sync:
       print (" include mirrorscript ")
       script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      if OPTIONS.device_type == "MTD":
+        script_mirror.AppendExtra('');
+        script_mirror.AppendExtra('update_rootfs_ubi_volume() || '
+                       'abort("Failed to update rootfs ubi volume!");')
       script_mirror.AppendExtra('');
       script_mirror.Print("Copying  all images"
                    " from active to inactive slots...")

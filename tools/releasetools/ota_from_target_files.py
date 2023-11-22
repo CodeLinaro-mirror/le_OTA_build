@@ -1116,6 +1116,13 @@ reboot_now("%(bcb_dev)s", "");
 endif;
 endif;
 """ % bcb_dev)
+  manifest_xml = os.path.join(OPTIONS.input_tmp, "RADIO","manifest.xml")
+  if os.path.exists(manifest_xml):
+    manifest_xml_data = input_zip.read("RADIO/manifest.xml");
+    common.ZipWriteStr(output_zip, "manifest.xml", manifest_xml_data)
+    # extract the packed manifest.xml to /cache/recovery
+    script.AppendExtra('package_extract_file("manifest.xml",'
+                           '"/manifest/image/xml/manifest");')
   if OPTIONS.install_only:
     script_install = script
     script_install.AddToZipInstall(input_zip, output_zip)

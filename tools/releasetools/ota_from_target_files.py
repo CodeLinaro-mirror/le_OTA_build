@@ -189,6 +189,7 @@ OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
 OPTIONS.mirror_sync = False
+OPTIONS.pre_version_check = False
 
 EMPTYFILE_list = []
 
@@ -680,6 +681,15 @@ def CalculateFingerprint(oem_props, oem_dict, info_dict):
       GetOemProperty("ro.product.device", oem_props, oem_dict, info_dict),
       GetBuildProp("ro.build.thumbprint", info_dict))
 
+def GetImageSquash(which, tmpdir):
+  squashfs_extract = tempfile.NamedTemporaryFile()
+  #unsquashfs -f -d extract/ sysfs.squash
+  path = os.path.join(tmpdir, "IMAGES", which + ".squash")
+  print ("using path %s" % (path,))
+  version = common.UnSquahfsTemp(path, which)
+  print (" version  %s" % (version,))
+  return int(version)
+
 
 def GetImage(which, tmpdir, info_dict):
   # Return an image object (suitable for passing to BlockImageDiff)
@@ -891,6 +901,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         if OPTIONS.nad_update:
           system_image_size = system_diff.GetImageSize()
           print (" system_image_size %s" %(system_image_size))
+          if OPTIONS.pre_version_check:
+            input_tmp_squashfs = OPTIONS.input_tmp
+            system_image_version = GetImageSquash("system", input_tmp_squashfs)
+            print (" system_image_version %d" %(system_image_version))
 
         # enable full update for modem with squashfs image
         if vmbootsys_squash_vol_update:
@@ -909,6 +923,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, src=None)
           modem_image_size = modem_diff.GetImageSize()
           print (" modem_image_size %s" %(modem_image_size))
+          if OPTIONS.pre_version_check:
+            input_tmp_squashfs = OPTIONS.input_tmp
+            modem_image_version = GetImageSquash("firmware", input_tmp_squashfs)
+            print (" modem_image_version %d" %(modem_image_version))
 
         # enable full update for telaf with squashfs image
         if telaf_squash_vol_update:
@@ -918,6 +936,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, src=None)
           telaf_image_size = telaf_diff.GetImageSize()
           print (" telaf_image_size %s" %(telaf_image_size))
+          if OPTIONS.pre_version_check:
+            input_tmp_squashfs = OPTIONS.input_tmp
+            telaf_image_version = GetImageSquash("telaf", input_tmp_squashfs)
+            print (" telaf_image_version %d" %(telaf_image_version))
 
         # enable full update for recoveryfs with squashfs image
         if is_recoveryfs_volume_update:
@@ -964,6 +986,19 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         if OPTIONS.nad_update:
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
+          if OPTIONS.pre_version_check and system_image_version:
+            script_pre_check = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+            script_pre_check.AppendExtra('');
+            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                           'abort("Failed to validate pre check version for system image !");') % system_image_version);
+            print(" print system_image_version : %s" % (system_image_version))
+            f = open("image_versions.txt", "w")
+            f.write("rootfs : " + str(system_image_version) + "\n")
+            f.close()
+            f = open("image_versions.txt", "rb")
+            system_data = f.read()
+            f.close()
+            common.ZipWriteStr(output_zip, "image_versions", system_data)
         if vmbootsys_squash_vol_update:
           vmbootsys_diff.WriteScript(script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
@@ -972,10 +1007,32 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           modem_diff.WriteScript(script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                          'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+          if OPTIONS.pre_version_check and modem_image_version:
+            script_pre_check.AppendExtra('');
+            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                           'abort("Failed to validate pre check version for firmware image !");') % modem_image_version);
+            f = open("image_versions.txt", "a")
+            f.write("firmware : " + str(modem_image_version) + "\n")
+            f.close()
+            f = open("image_versions.txt", "rb")
+            modem_data = f.read()
+            f.close()
+            common.ZipWriteStr(output_zip, "image_versions", modem_data)
         if telaf_squash_vol_update:
           telaf_diff.WriteScript(script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                          'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
+          if OPTIONS.pre_version_check and telaf_image_version :
+            script_pre_check.AppendExtra('');
+            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                           'abort("Failed to validate pre check version for telaf image !");') % telaf_image_version);
+            f = open("image_versions.txt", "a")
+            f.write("telaf : " + str(telaf_image_version))
+            f.close()
+            f = open("image_versions.txt", "rb")
+            telaf_data = f.read()
+            f.close()
+            common.ZipWriteStr(output_zip, "image_versions", telaf_data)
 
   else:
     if not dm_verity_nand:
@@ -1147,6 +1204,8 @@ endif;
     script.AppendExtra('');
     print (" set inactive to active slot ")
     script.Print("NAD update success...")
+    if OPTIONS.pre_version_check:
+      script_pre_check.AddToZipPreCheckVersion(input_zip, output_zip)
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -2699,6 +2758,8 @@ def main(argv):
       OPTIONS.system_mount_path = a
     elif o == "--mirror_sync":
       OPTIONS.mirror_sync = True
+    elif o == "--pre_version_check":
+      OPTIONS.pre_version_check = True
     else:
       return False
     return True
@@ -2734,7 +2795,8 @@ def main(argv):
                                  "payload_signer=",
                                  "payload_signer_args=",
                                  "system_mount_path=",
-                                 "mirror_sync"
+                                 "mirror_sync",
+                                 "pre_version_check"
                              ], extra_option_handler=option_handler)
 
   if len(args) != 2:

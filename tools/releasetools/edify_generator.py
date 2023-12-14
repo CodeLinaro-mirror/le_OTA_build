@@ -401,6 +401,13 @@ class EdifyGenerator(object):
       self.script.append('unmount("%s");' % (p,))
     self.mounts = set()
 
+  def AddToZipPostInstall(self, input_zip, output_zip):
+    """Write updater-post-install-script which is used to verify post install check """
+
+    self.UnmountAll()
+    common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-post-install-script",
+                       "\n".join(self.script) + "\n")
+
   def AddToZipMirror(self, input_zip, output_zip):
     """Write updater-mirror-script which is used to copy active images
     to inactive partitions  """

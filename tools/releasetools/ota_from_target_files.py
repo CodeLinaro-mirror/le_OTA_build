@@ -737,6 +737,7 @@ def WriteFullOTAPackage(input_zip, output_zip):
   # change very often. Similarly for fstab, it might have changed
   # in the target build.
   script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+  updater_post_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
 
   oem_props = OPTIONS.info_dict.get("oem_fingerprint_properties")
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
@@ -961,21 +962,27 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if not OPTIONS.ubuntu_based and not dm_verity_nand:
         system_diff.WriteScript(script, output_zip)
+        system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
         if OPTIONS.nad_update:
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
         if vmbootsys_squash_vol_update:
           vmbootsys_diff.WriteScript(script, output_zip)
+          vmbootsys_diff.WritePostInstallScript(updater_post_install_script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
                          'abort("Failed to erase blocks in firmware volume!");') % vmbootsys_image_size);
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
+          modem_diff.WritePostInstallScript(updater_post_install_script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                          'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
         if telaf_squash_vol_update:
           telaf_diff.WriteScript(script, output_zip)
+          telaf_diff.WritePostInstallScript(updater_post_install_script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                          'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
+
+        updater_post_install_script.AddToZipPostInstall(input_zip, output_zip)
 
   else:
     if not dm_verity_nand:

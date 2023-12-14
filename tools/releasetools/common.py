@@ -1433,6 +1433,19 @@ class BlockDifference(object):
     if OPTIONS.ab_ota_update or OPTIONS.verify:
       self._WritePostInstallVerifyScript(script)
 
+  def WritePostInstallScript(self, script, output_zip, progress=None):
+    if not self.src:
+      # write the output unconditionally
+      script.Print("Writing script post installation %s" % (self.partition,))
+    else:
+      script.Print("Writing post installation after verification %s" % (self.partition,))
+
+    # On targets that support A/B boot, perform the
+    # post installation verification always since we
+    # can afford OTA to take a little longer to finish.
+    if OPTIONS.ab_ota_update or OPTIONS.verify or OPTIONS.nad_update:
+      self._WritePostInstallVerifyScript(script)
+
   def WriteStrictVerifyScript(self, script):
     """Verify all the blocks in the care_map, including clobbered blocks.
 

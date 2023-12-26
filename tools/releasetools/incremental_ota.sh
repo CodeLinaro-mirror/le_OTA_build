@@ -76,7 +76,7 @@ if [ "$#" -gt 5 ]; then
 fi
 
 # Specify MMC or MTD type device. MTD by default
-[[ $4 = "ext4" ]] && device_type="MMC" || device_type="MTD"
+[[ $4 = "ext4" || $4 = "squashfs" ]] && device_type="MMC" || device_type="MTD"
 
 # Setup temp folder to unzip target files
 target_files=target_files_incremental_$4

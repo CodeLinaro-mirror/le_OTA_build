@@ -1380,6 +1380,7 @@ class BlockDifference(object):
     self.partition = partition
     self.check_first_block = check_first_block
     self.disable_imgdiff = disable_imgdiff
+    self.tgt_image_size = []
 
     if version is None:
       version = 1
@@ -1399,6 +1400,9 @@ class BlockDifference(object):
     self._required_cache = b.max_stashed_size
     self.touched_src_ranges = b.touched_src_ranges
     self.touched_src_sha1 = b.touched_src_sha1
+    print ("source range %s" %(b.tgt_image_size))
+    if (b.tgt_image_size):
+      self.tgt_image_size = b.tgt_image_size
 
     if system_mount_point == '/':
       partition = ''
@@ -1412,6 +1416,9 @@ class BlockDifference(object):
   @property
   def required_cache(self):
     return self._required_cache
+
+  def GetImageSize(self):
+    return self.tgt_image_size
 
   def WriteScript(self, script, output_zip, progress=None):
     if not self.src:

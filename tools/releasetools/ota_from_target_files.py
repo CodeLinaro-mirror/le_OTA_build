@@ -1123,6 +1123,18 @@ endif;
     # extract the packed manifest.xml to /cache/recovery
     script.AppendExtra('package_extract_file("manifest.xml",'
                            '"/manifest/image/xml/manifest");')
+  modem_config_path = os.path.join(OPTIONS.input_tmp, "RADIO","MODEM_CONFIG")
+  if os.path.exists(modem_config_path):
+    for info in input_zip.infolist():
+      f = info.filename
+      if f.startswith("RADIO/MODEM_CONFIG/"):
+        fn = f[19:]
+        modem_config_data = input_zip.read(f)
+        fdest = "modem_config/" + fn
+        common.ZipWriteStr(output_zip, fdest, modem_config_data, perms=0o755)
+    # extract the packed MODEM_CONFIG to /cache/recovery/modem_config/
+    script.AppendExtra('package_extract_dir("modem_config",'
+                           '"/cache/recovery/modem_config");')
   if OPTIONS.install_only:
     script_install = script
     script_install.AddToZipInstall(input_zip, output_zip)

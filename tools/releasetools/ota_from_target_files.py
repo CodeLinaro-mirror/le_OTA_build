@@ -557,6 +557,11 @@ def HasVMbootsysSquashImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
   return ("IMAGES/vm-bootsys.img" in namelist)
 
+# if this file is present, lxcrootfs will be included in update package
+def HasLxcrootfsSquashImage(target_files_zip):
+  namelist = [name for name in target_files_zip.namelist()]
+  return ("IMAGES/lxcrootfs.img" in namelist)
+
 # if this file is present, incremental boot image is supported in build
 def HasModemSquashImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
@@ -607,7 +612,7 @@ def GetImage(which, tmpdir, info_dict):
   # otherwise they are reconstructed from the individual files.
 
   if OPTIONS.nad_update:
-    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs", "vm-bootsys")
+    assert which in ("system", "vendor", "modem", "telaf", "recoveryfs", "vm-bootsys", "lxcrootfs")
   else:
     assert which in ("system", "vendor", "vendor_dlkm")
 
@@ -775,6 +780,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
   else:
     vmbootsys_squash_vol_update = False
 
+  if HasLxcrootfsSquashImage(input_zip):
+    lxcrootfs_squash_vol_update = True
+  else:
+    lxcrootfs_squash_vol_update = False
+
   if HasModemSquashImage(input_zip):
     modem_squash_vol_update = True
   else:
@@ -819,7 +829,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           system_image_size = system_diff.GetImageSize()
           print (" system_image_size %s" %(system_image_size))
 
-        # enable full update for modem with squashfs image
+        # enable full update for vmbootsys with squashfs image
         if vmbootsys_squash_vol_update:
           print (" generating vm-bootsys update also ")
           vmbootsys_tgt = GetImage("vm-bootsys", OPTIONS.input_tmp, OPTIONS.info_dict)
@@ -827,6 +837,15 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, vmbootsys_tgt, src=None)
           vmbootsys_image_size = vmbootsys_diff.GetImageSize()
           print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
+
+        # enable full update for lxcrootfs with squashfs image
+        if lxcrootfs_squash_vol_update:
+          print (" generating lxcrootfs update also ")
+          lxcrootfs_tgt = GetImage("lxcrootfs", OPTIONS.input_tmp, OPTIONS.info_dict)
+          lxcrootfs_tgt.ResetFileMap()
+          lxcrootfs_diff = common.BlockDifference("lxcrootfs", OPTIONS.system_mount_path, lxcrootfs_tgt, src=None)
+          lxcrootfs_image_size = lxcrootfs_diff.GetImageSize()
+          print (" lxcrootfs_image_size %s" %(lxcrootfs_image_size))
 
         # enable full update for modem with squashfs image
         if modem_squash_vol_update:
@@ -896,7 +915,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         if vmbootsys_squash_vol_update:
           vmbootsys_diff.WriteScript(script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
-                         'abort("Failed to erase blocks in firmware volume!");') % vmbootsys_image_size);
+                         'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
+        if lxcrootfs_squash_vol_update:
+          lxcrootfs_diff.WriteScript(script, output_zip)
+          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+                         'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
@@ -1186,6 +1209,11 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   else:
     vmbootsys_squash_vol_update = False
 
+  if HasLxcrootfsSquashImage(source_zip):
+    lxcrootfs_squash_vol_update = True
+  else:
+    lxcrootfs_squash_vol_update = False
+
   if HasModemSquashImage(source_zip):
     modem_squash_vol_update = True
   else:
@@ -1254,6 +1282,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
     vmbootsys_src = GetImage("vm-bootsys", OPTIONS.source_tmp, OPTIONS.source_info_dict)
     vmbootsys_tgt = GetImage("vm-bootsys", OPTIONS.target_tmp, OPTIONS.target_info_dict)
 
+  if lxcrootfs_squash_vol_update:
+    lxcrootfs_src = GetImage("lxcrootfs", OPTIONS.source_tmp, OPTIONS.source_info_dict)
+    lxcrootfs_tgt = GetImage("lxcrootfs", OPTIONS.target_tmp, OPTIONS.target_info_dict)
+
   blockimgdiff_version = 1
   if OPTIONS.info_dict:
     blockimgdiff_version = max(
@@ -1292,6 +1324,14 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        disable_imgdiff=disable_imgdiff)
     vmbootsys_image_size = vmbootsys_diff.GetImageSize()
     print (" vmbootsys_image_size %s" %(vmbootsys_image_size))
+
+  if lxcrootfs_squash_vol_update:
+    lxcrootfs_diff = common.BlockDifference("lxcrootfs", OPTIONS.system_mount_path, lxcrootfs_tgt, lxcrootfs_src,
+                                       check_first_block,
+                                       version=blockimgdiff_version,
+                                       disable_imgdiff=disable_imgdiff)
+    lxcrootfs_image_size = lxcrootfs_diff.GetImageSize()
+    print (" lxcrootfs_image_size %s" %(lxcrootfs_image_size))
 
   if modem_squash_vol_update:
     modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
@@ -1458,6 +1498,8 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     size.append(system_diff.required_cache)
   if vmbootsys_squash_vol_update and vmbootsys_diff:
       size.append(vmbootsys_diff.required_cache)
+  if lxcrootfs_squash_vol_update and lxcrootfs_diff:
+      size.append(lxcrootfs_diff.required_cache)
   if modem_squash_vol_update and modem_diff:
       size.append(modem_diff.required_cache)
   if telaf_squash_vol_update and telaf_diff:
@@ -1531,6 +1573,8 @@ else
     telaf_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vmbootsys_squash_vol_update and vmbootsys_diff:
     vmbootsys_diff.WriteVerifyScript(script, touched_blocks_only=True)
+  if lxcrootfs_squash_vol_update and lxcrootfs_diff:
+    lxcrootfs_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_diff:
     vendor_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if vendor_dlkm_exist and vdlkm_diff:
@@ -1565,7 +1609,6 @@ else
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                      'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
 
-
   if vmbootsys_squash_vol_update and vmbootsys_diff:
     vmbootsys_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
@@ -1593,6 +1636,12 @@ else
                           progress=0.81 if vendor_diff else 0.88)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                      'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
+
+  if lxcrootfs_squash_vol_update and lxcrootfs_diff:
+    lxcrootfs_diff.WriteScript(script, output_zip,
+                          progress=0.8 if vendor_diff else 0.9)
+    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+                     'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
 
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)

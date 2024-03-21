@@ -851,9 +851,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                            # 'abort("Failed to copy active nonhlos to inactive nonhlos!");');
         script.AppendExtra('');
 
-    if not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC":
+    #if img_by_img feature is enabled then it doesn't write script to update
+    #the system if system.img is not mentioned in images_to_upgrade.txt
+    if (not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC") and ((img_by_img and "system.img" in images_to_upgrade) or not img_by_img):
       system_diff.WriteScript(script, output_zip)
-
   else:
     if not dm_verity_nand:
       script.FormatPartition(OPTIONS.system_mount_path)
@@ -1321,7 +1322,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
     # MTD devices usually have low free space in cache,
     # so disable incremental upgrade of boot.img on MTD
-    if d is None or OPTIONS.device_type == "MTD":
+    if d is None or OPTIONS.device_type == "MTD" or OPTIONS.squashfs_nand:
       include_full_boot = True
       common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
     else:
@@ -2477,6 +2478,10 @@ def main(argv):
   OPTIONS.ab_ota_update = OPTIONS.info_dict.get("le_target_supports_ab", "0") == "1"
   if OPTIONS.ab_ota_update:
     print ("Generating A/B OTA upgrade package..");
+
+  OPTIONS.squashfs_nand = OPTIONS.info_dict.get("owrt_target_supports_squashfs", "0") == "1"
+  if OPTIONS.squashfs_nand:
+    print ("Squashfs is enable.")
 
   if ab_update:
     if OPTIONS.incremental_source is not None:

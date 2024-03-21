@@ -71,6 +71,7 @@ class Options(object):
     self.platform_mode = 'android'
     # Assume non A/B by default
     self.ab_ota_update = False
+    self.squashfs_nand = False
     self.system_mount_path = '/system'
 
 

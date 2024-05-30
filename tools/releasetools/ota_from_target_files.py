@@ -1120,9 +1120,6 @@ endif;
   if os.path.exists(manifest_xml):
     manifest_xml_data = input_zip.read("RADIO/manifest.xml");
     common.ZipWriteStr(output_zip, "manifest.xml", manifest_xml_data)
-    # extract the packed manifest.xml to /cache/recovery
-    script.AppendExtra('package_extract_file("manifest.xml",'
-                           '"/manifest/image/xml/manifest");')
   modem_config_path = os.path.join(OPTIONS.input_tmp, "RADIO","MODEM_CONFIG")
   if os.path.exists(modem_config_path):
     for info in input_zip.infolist():

@@ -152,6 +152,9 @@ import common
 from common import ErrorCode
 import edify_generator
 import sparse_img
+import xml.etree.ElementTree as ET
+import shutil
+
 
 OPTIONS = common.OPTIONS
 OPTIONS.package_key = None
@@ -190,8 +193,12 @@ OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
 OPTIONS.mirror_sync = False
 OPTIONS.install_only = False
-
+OPTIONS.build_id = None
 EMPTYFILE_list = []
+buildids = []
+vendors = []
+vendor_codes = []
+vendor_ru_names = []
 
 def Get_extractedpath(zipname,path):
     """ Get input zip extracted path"""
@@ -1061,14 +1068,20 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       vendor_items.Get("vendor").SetPermissions(script)
 
   common.CheckSize(boot_img.data, "boot.img", OPTIONS.info_dict)
-  common.ZipWriteStr(output_zip, "boot.img", boot_img.data)
+  if OPTIONS.build_id is None:
+    common.ZipWriteStr(output_zip, "boot.img", boot_img.data)
+  else:
+    common.ZipWriteStr(output_zip, "build-id" + OPTIONS.build_id + "/" + "boot.img", boot_img.data)
   # disable modem.ubifs in full update, due to size
   #if modem_ubifs_vol_update:
     #common.ZipWriteStr(output_zip, "modem.ubifs", modem_ubifs.data)
 
   script.ShowProgress(0.05, 5)
   if OPTIONS.ab_ota_update:
-    script.WriteRawImage("/boot", "boot.img", None, boot_img.size, boot_img.sha1)
+    if OPTIONS.build_id is None:
+      script.WriteRawImage("/boot", "boot.img", None, boot_img.size, boot_img.sha1)
+    else:
+      script.WriteRawImage("/boot", "build-id" + OPTIONS.build_id + "/boot.img", None, boot_img.size, boot_img.sha1)
   else:
     script.WriteRawImage("/boot", "boot.img")
 
@@ -1116,10 +1129,7 @@ reboot_now("%(bcb_dev)s", "");
 endif;
 endif;
 """ % bcb_dev)
-  manifest_xml = os.path.join(OPTIONS.input_tmp, "RADIO","manifest.xml")
-  if os.path.exists(manifest_xml):
-    manifest_xml_data = input_zip.read("RADIO/manifest.xml");
-    common.ZipWriteStr(output_zip, "manifest.xml", manifest_xml_data)
+
   modem_config_path = os.path.join(OPTIONS.input_tmp, "RADIO","MODEM_CONFIG")
   if os.path.exists(modem_config_path):
     for info in input_zip.infolist():
@@ -1179,7 +1189,12 @@ def WritePolicyConfig(file_name, output_zip):
 
 
 def WriteMetadata(metadata, output_zip):
-  common.ZipWriteStr(output_zip, "META-INF/com/android/metadata",
+  if OPTIONS.build_id is not None:
+    common.ZipWriteStr(output_zip, "build-id" + OPTIONS.build_id + "/META-INF/com/android/metadata",
+                     "".join(["%s=%s\n" % kv
+                              for kv in sorted(metadata.items())]))
+  else:
+    common.ZipWriteStr(output_zip, "META-INF/com/android/metadata",
                      "".join(["%s=%s\n" % kv
                               for kv in sorted(metadata.items())]))
 
@@ -2645,6 +2660,67 @@ def PackRecoveryImages(output_zip, info_dict):
      common.ZipWriteStr(output_zip, target_recoveryfs_img.name,
                         target_recoveryfs_img.data)
 
+
+def merge_xmls(file1_path, file2_path, outfile_path):
+
+    if not os.path.isfile(file1_path):
+        print("File %s does not exist." % file1_path)
+        sys.exit(1)
+    if not os.path.isfile(file2_path):
+        print("File %s does not exist." % file2_path)
+        sys.exit(1)
+    if not os.path.isfile(outfile_path):
+        print("File %s does not exist." % outfile_path)
+        sys.exit(1)
+
+    try:
+        # Parse the first XML file
+        tree1 = ET.parse(file1_path)
+        root1 = tree1.getroot()
+
+        # Parse the second XML file
+        tree2 = ET.parse(file2_path)
+        root2 = tree2.getroot()
+
+        # Find the target element in the first file where you want to append
+        # This example assumes you want to merge under the first 'results' element
+        target = root1.find('.//products')
+        builds = root1.find('.//builds')
+
+        for elem in root1.findall('products'):
+            for subelem in elem:
+                buildids.append(subelem.get('build-Id'))
+                vendors.append(subelem.get('vendor'))
+                vendor_codes.append(subelem.get('code'))
+                vendor_ru_names.append(subelem.get('name'))
+
+        for elem in root2.findall('products'):
+            for subelem in elem:
+                if subelem.get('build-Id') in buildids:
+                    print(subelem.get('build-Id'))
+                    print("Build-id's cannot be same accross two builds\n")
+                    sys.exit(1)
+                for vendor, code, name in zip(vendors, vendor_codes, vendor_ru_names):
+                    if(subelem.get('vendor') == vendor and subelem.get('code') == code and subelem.get('name') == name):
+                        print("Two Same products cannot be included in one OTA package\n")
+                        sys.exit(1)
+
+        del buildids[:]
+        del vendors[:]
+        del vendor_codes[:]
+        del vendor_ru_names[:]
+        # If the target element is found, extend it with the children from the second file
+        if target is not None:
+            target.extend(root2.find('.//products'))
+        if builds is not None:
+            builds.extend(root2.find('.//builds'))
+        # Write the merged XML to the output file
+        tree1.write(outfile_path)
+
+    except ET.ParseError:
+        print("Failed to parse xml. It may not be a well-formed XML.\n")
+
+
 def main(argv):
 
   def option_handler(o, a):
@@ -2760,7 +2836,7 @@ def main(argv):
                                  "install_only"
                              ], extra_option_handler=option_handler)
 
-  if len(args) != 2:
+  if len(args) < 2:
     common.Usage(__doc__)
     sys.exit(1)
 
@@ -2778,159 +2854,249 @@ def main(argv):
 
   # Load the dict file from the zip directly to have a peek at the OTA type.
   # For packages using A/B update, unzipping is not needed.
-  input_zip = zipfile.ZipFile(args[0], "r")
-  OPTIONS.info_dict = common.LoadInfoDict(input_zip)
-  common.ZipClose(input_zip)
+  no_of_input_files = args[0]
+  mplane_ota = False
+  if no_of_input_files.isdigit():
+    print("Argument is integer and this is mplane ota generation\n")
+    mplane_ota = True
+  else:
+    print("Argument is string and this is normal ota generation\n")
 
-  ab_update = OPTIONS.info_dict.get("ab_update") == "true"
+  if mplane_ota:
+    output_package_name = args[1 + int(no_of_input_files)]
+  else:
+    output_package_name = args[1]
 
-  OPTIONS.ab_ota_update = OPTIONS.info_dict.get("le_target_supports_ab", "0") == "1"
-  if OPTIONS.ab_ota_update:
-    print ("Generating A/B OTA upgrade package..");
+  print(output_package_name)
+  if os.path.exists(output_package_name):
+    os.unlink(output_package_name)
+  temp_xml_file1 = tempfile.NamedTemporaryFile(delete=False)
+  temp_xml_file2 = tempfile.NamedTemporaryFile(delete=False)
+  temp_xml_file3 = tempfile.NamedTemporaryFile(delete=False)
+  merged_xml_file = tempfile.NamedTemporaryFile(delete=False)
+  if mplane_ota:
+    loop_range = int(no_of_input_files)
+  else:
+    loop_range = 1
+  temp_zip_file = tempfile.NamedTemporaryFile()
+  for x in range(loop_range):
+    if not mplane_ota:
+      input_zip = zipfile.ZipFile(args[x], "r")
+    else:
+      input_zip = zipfile.ZipFile(args[x+1], "r")
 
-  OPTIONS.nad_update = OPTIONS.info_dict.get("le_target_supports_nad", "0") == "1"
-  if OPTIONS.nad_update:
-    print ("Including  A/B sync for nad..");
+    OPTIONS.info_dict = common.LoadInfoDict(input_zip)
+    common.ZipClose(input_zip)
 
-  OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"
-  if OPTIONS.nad_fde:
-    print ("FDE is supported..");
+    ab_update = OPTIONS.info_dict.get("ab_update") == "true"
 
-  if ab_update:
-    if OPTIONS.incremental_source is not None:
-      OPTIONS.target_info_dict = OPTIONS.info_dict
-      source_zip = zipfile.ZipFile(OPTIONS.incremental_source, "r")
-      OPTIONS.source_info_dict = common.LoadInfoDict(source_zip)
-      common.ZipClose(source_zip)
+    OPTIONS.ab_ota_update = OPTIONS.info_dict.get("le_target_supports_ab", "0") == "1"
+    if OPTIONS.ab_ota_update:
+      print ("Generating A/B OTA upgrade package..");
+
+    OPTIONS.nad_update = OPTIONS.info_dict.get("le_target_supports_nad", "0") == "1"
+    if OPTIONS.nad_update:
+      print ("Including  A/B sync for nad..");
+
+    OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"
+    if OPTIONS.nad_fde:
+      print ("FDE is supported..");
+
+    if ab_update:
+      if OPTIONS.incremental_source is not None:
+        OPTIONS.target_info_dict = OPTIONS.info_dict
+        source_zip = zipfile.ZipFile(OPTIONS.incremental_source, "r")
+        OPTIONS.source_info_dict = common.LoadInfoDict(source_zip)
+        common.ZipClose(source_zip)
+
+      if OPTIONS.verbose:
+        print ("--- target info ---")
+        common.DumpInfoDict(OPTIONS.info_dict)
+
+        if OPTIONS.incremental_source is not None:
+          print ("--- source info ---")
+          common.DumpInfoDict(OPTIONS.source_info_dict)
+
+      WriteABOTAPackageWithBrilloScript(
+          target_file=args[0],
+          output_file=args[1],
+          source_file=OPTIONS.incremental_source)
+
+      print ("done.")
+      return
+
+    print ('ota platform type %s ' % (OPTIONS.platform_mode))
+
+    if OPTIONS.extra_script is not None:
+      OPTIONS.extra_script = open(OPTIONS.extra_script).read()
+
+    print ("unzipping target target-files...")
+
+    if mplane_ota:
+      OPTIONS.input_tmp, input_zip = common.UnzipTemp(args[x+1])
+    else:
+      OPTIONS.input_tmp, input_zip = common.UnzipTemp(args[0])
+
+    OPTIONS.target_tmp = OPTIONS.input_tmp
+    OPTIONS.info_dict = common.LoadInfoDict(input_zip, OPTIONS.target_tmp)
 
     if OPTIONS.verbose:
       print ("--- target info ---")
       common.DumpInfoDict(OPTIONS.info_dict)
 
-      if OPTIONS.incremental_source is not None:
-        print ("--- source info ---")
-        common.DumpInfoDict(OPTIONS.source_info_dict)
+    # If the caller explicitly specified the device-specific extensions
+    # path via -s/--device_specific, use that.  Otherwise, use
+    # META/releasetools.py if it is present in the target target_files.
+    # Otherwise, take the path of the file from 'tool_extensions' in the
+    # info dict and look for that in the local filesystem, relative to
+    # the current directory.
 
-    WriteABOTAPackageWithBrilloScript(
-        target_file=args[0],
-        output_file=args[1],
-        source_file=OPTIONS.incremental_source)
+    if OPTIONS.device_specific is None:
+      from_input = os.path.join(OPTIONS.input_tmp, "META", "releasetools.py")
+      if os.path.exists(from_input):
+        print ("(using device-specific extensions from target_files)")
+        OPTIONS.device_specific = from_input
+      else:
+        OPTIONS.device_specific = OPTIONS.info_dict.get("tool_extensions", None)
 
-    print ("done.")
-    return
+    if OPTIONS.device_specific is not None:
+      OPTIONS.device_specific = os.path.abspath(OPTIONS.device_specific)
 
-  print ('ota platform type %s ' % (OPTIONS.platform_mode))
+    if OPTIONS.info_dict.get("no_recovery") == "true":
+      raise common.ExternalError(
+          "--- target build has specified no recovery ---")
 
-  if OPTIONS.extra_script is not None:
-    OPTIONS.extra_script = open(OPTIONS.extra_script).read()
-
-  print ("unzipping target target-files...")
-  OPTIONS.input_tmp, input_zip = common.UnzipTemp(args[0])
-
-  OPTIONS.target_tmp = OPTIONS.input_tmp
-  OPTIONS.info_dict = common.LoadInfoDict(input_zip, OPTIONS.target_tmp)
-
-  if OPTIONS.verbose:
-    print ("--- target info ---")
-    common.DumpInfoDict(OPTIONS.info_dict)
-
-  # If the caller explicitly specified the device-specific extensions
-  # path via -s/--device_specific, use that.  Otherwise, use
-  # META/releasetools.py if it is present in the target target_files.
-  # Otherwise, take the path of the file from 'tool_extensions' in the
-  # info dict and look for that in the local filesystem, relative to
-  # the current directory.
-
-  if OPTIONS.device_specific is None:
-    from_input = os.path.join(OPTIONS.input_tmp, "META", "releasetools.py")
-    if os.path.exists(from_input):
-      print ("(using device-specific extensions from target_files)")
-      OPTIONS.device_specific = from_input
+    # Use the default key to sign the package if not specified with package_key.
+    if not OPTIONS.no_signing:
+      if OPTIONS.package_key is None:
+        OPTIONS.package_key = OPTIONS.info_dict.get(
+            "default_system_dev_certificate",
+            "build/target/product/security/testkey")
+    # Set up the output zip. Create a temporary zip file if signing is needed.
+    if OPTIONS.no_signing:
+      output_zip = zipfile.ZipFile(output_package_name, "a",
+                                   compression=zipfile.ZIP_DEFLATED)
     else:
-      OPTIONS.device_specific = OPTIONS.info_dict.get("tool_extensions", None)
+      output_zip = zipfile.ZipFile(temp_zip_file, "a",
+                                   compression=zipfile.ZIP_DEFLATED)
 
-  if OPTIONS.device_specific is not None:
-    OPTIONS.device_specific = os.path.abspath(OPTIONS.device_specific)
 
-  if OPTIONS.info_dict.get("no_recovery") == "true":
-    raise common.ExternalError(
-        "--- target build has specified no recovery ---")
+    manifest_xml = os.path.join(OPTIONS.input_tmp, "RADIO","manifest.xml")
+    if os.path.exists(manifest_xml) and mplane_ota:
+      manifest_xml_data = input_zip.read("RADIO/manifest.xml")
+      try:
+          with open(temp_xml_file3.name, "w") as fd:
+              fd.write(manifest_xml_data)
+      except IOError:
+          print("Failed to open %s\n" % temp_xml_file3.name)
+      except Exception as e:
+          print("An error occurred: %s" % e)
+      try:
+          manifest_tree = ET.parse(temp_xml_file3.name)
+          manifest_root = manifest_tree.getroot()
+      except ET.ParseError:
+          print("Failed to parse %s It may not be a well-formed XML." % temp_xml_file3.name)
+      if OPTIONS.install_only:
+        for child1 in manifest_root.findall('products'):
+          for subchild1 in child1:
+            OPTIONS.build_id = subchild1.get('build-Id')
+      if OPTIONS.build_id is not None:
+        common.ZipWriteStr(output_zip,"build-id" + OPTIONS.build_id +"/manifest.xml", manifest_xml_data)
+      if(x == 0):
+        if not os.path.isfile(temp_xml_file1.name):
+            print("File %s does not exists\n")
+            sys.exit(1)
+        try:
+            with open(temp_xml_file1.name, "w") as fd:
+                fd.write(manifest_xml_data)
+        except IOError:
+            print("Failed to open %s\n" % temp_xml_file1.name)
+        except Exception as e:
+            print("An error occurred: %s" % e)
+        temp_xml_file1.close()
+      else:
+        try:
+            with open(temp_xml_file2.name, "w") as fd:
+                fd.write(manifest_xml_data)
+        except IOError:
+            print("Failed to open %s\n" % temp_xml_file2.name)
+        except Exception as e:
+            print("An error occurred: %s" % e)
+        temp_xml_file2.close()
+        merge_xmls(temp_xml_file1.name, temp_xml_file2.name, merged_xml_file.name)
+        shutil.copyfile(merged_xml_file.name, temp_xml_file1.name)
+      if(int(no_of_input_files) == 1):
+          common.ZipWriteStr(output_zip, "common_manifest.xml", manifest_xml_data)
+      elif(x == int(no_of_input_files) - 1):
+          try:
+              with open(merged_xml_file.name) as fd:
+                  merged_xml_file_data = fd.read()
+                  common.ZipWriteStr(output_zip, "common_manifest.xml", merged_xml_file_data)
+          except IOError:
+              print("Failed to open %s\n" % merged_xml_file.name)
+          except Exception as e:
+              print("An error occurred: %s" % e)
 
-  # Use the default key to sign the package if not specified with package_key.
-  if not OPTIONS.no_signing:
-    if OPTIONS.package_key is None:
-      OPTIONS.package_key = OPTIONS.info_dict.get(
-          "default_system_dev_certificate",
-          "build/target/product/security/testkey")
+    # Non A/B OTAs rely on /cache partition to store temporary files.
+    cache_size = OPTIONS.info_dict.get("cache_size", None)
+    if cache_size is None:
+      print ("--- can't determine the cache partition size ---")
+    OPTIONS.cache_size = cache_size
 
-  # Set up the output zip. Create a temporary zip file if signing is needed.
-  if OPTIONS.no_signing:
-    if os.path.exists(args[1]):
-      os.unlink(args[1])
-    output_zip = zipfile.ZipFile(args[1], "w",
-                                 compression=zipfile.ZIP_DEFLATED)
-  else:
-    temp_zip_file = tempfile.NamedTemporaryFile()
-    output_zip = zipfile.ZipFile(temp_zip_file, "w",
-                                 compression=zipfile.ZIP_DEFLATED)
+    # Generate a verify package.
+    if OPTIONS.gen_verify:
+      WriteVerifyPackage(input_zip, output_zip)
 
-  # Non A/B OTAs rely on /cache partition to store temporary files.
-  cache_size = OPTIONS.info_dict.get("cache_size", None)
-  if cache_size is None:
-    print ("--- can't determine the cache partition size ---")
-  OPTIONS.cache_size = cache_size
-
-  # Generate a verify package.
-  if OPTIONS.gen_verify:
-    WriteVerifyPackage(input_zip, output_zip)
-
-  # Generate a full OTA.
-  elif OPTIONS.incremental_source is None:
-    WriteFullOTAPackage(input_zip, output_zip)
-
-    # Include recovery images also if applicable
-    PackRecoveryImages(output_zip, OPTIONS.info_dict)
-
-  # Generate an incremental OTA. It will fall back to generate a full OTA on
-  # failure unless no_fallback_to_full is specified.
-  else:
-    print ("unzipping source target-files...")
-    OPTIONS.source_tmp, source_zip = common.UnzipTemp(
-        OPTIONS.incremental_source)
-    OPTIONS.target_info_dict = OPTIONS.info_dict
-    OPTIONS.source_info_dict = common.LoadInfoDict(source_zip,
-                                                   OPTIONS.source_tmp)
-    if OPTIONS.verbose:
-      print ("--- source info ---")
-      common.DumpInfoDict(OPTIONS.source_info_dict)
-    try:
-      WriteIncrementalOTAPackage(input_zip, source_zip, output_zip)
+    # Generate a full OTA.
+    elif OPTIONS.incremental_source is None:
+      WriteFullOTAPackage(input_zip, output_zip)
 
       # Include recovery images also if applicable
-      # Pass the target_info_dict for incremental OTA
-      PackRecoveryImages(output_zip, OPTIONS.target_info_dict)
-
-      if OPTIONS.log_diff:
-        out_file = open(OPTIONS.log_diff, 'w')
-        import target_files_diff
-        target_files_diff.recursiveDiff('',
-                                        OPTIONS.source_tmp,
-                                        OPTIONS.input_tmp,
-                                        out_file)
-        out_file.close()
-    except ValueError:
-      if not OPTIONS.fallback_to_full:
-        raise
-        print ("--- failed to build incremental; falling back to full ---")
-      OPTIONS.incremental_source = None
-      WriteFullOTAPackage(input_zip, output_zip)
       PackRecoveryImages(output_zip, OPTIONS.info_dict)
 
-  common.ZipClose(output_zip)
+    # Generate an incremental OTA. It will fall back to generate a full OTA on
+    # failure unless no_fallback_to_full is specified.
+    else:
+      print ("unzipping source target-files...")
+      OPTIONS.source_tmp, source_zip = common.UnzipTemp(
+          OPTIONS.incremental_source)
+      OPTIONS.target_info_dict = OPTIONS.info_dict
+      OPTIONS.source_info_dict = common.LoadInfoDict(source_zip,
+                                                     OPTIONS.source_tmp)
+      if OPTIONS.verbose:
+        print ("--- source info ---")
+        common.DumpInfoDict(OPTIONS.source_info_dict)
+      try:
+        WriteIncrementalOTAPackage(input_zip, source_zip, output_zip)
 
+        # Include recovery images also if applicable
+        # Pass the target_info_dict for incremental OTA
+        PackRecoveryImages(output_zip, OPTIONS.target_info_dict)
+
+        if OPTIONS.log_diff:
+          out_file = open(OPTIONS.log_diff, 'w')
+          import target_files_diff
+          target_files_diff.recursiveDiff('',
+                                          OPTIONS.source_tmp,
+                                          OPTIONS.input_tmp,
+                                          out_file)
+          out_file.close()
+      except ValueError:
+        if not OPTIONS.fallback_to_full:
+          raise
+          print ("--- failed to build incremental; falling back to full ---")
+        OPTIONS.incremental_source = None
+        WriteFullOTAPackage(input_zip, output_zip)
+        PackRecoveryImages(output_zip, OPTIONS.info_dict)
+
+    common.ZipClose(output_zip)
+  os.unlink(temp_xml_file1.name)
+  os.unlink(temp_xml_file2.name)
+  os.unlink(temp_xml_file3.name)
+  os.unlink(merged_xml_file.name)
   # Sign the generated zip package unless no_signing is specified.
   if not OPTIONS.no_signing:
-    SignOutput(temp_zip_file.name, args[1])
+    SignOutput(temp_zip_file.name, output_package_name)
     temp_zip_file.close()
 
   print ("done.")

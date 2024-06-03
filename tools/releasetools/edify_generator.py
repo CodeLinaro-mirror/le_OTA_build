@@ -413,8 +413,12 @@ class EdifyGenerator(object):
     """Write updater-install-script which is used to install images  """
 
     self.UnmountAll()
-    common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-install-script",
-                       "\n".join(self.script) + "\n")
+    if common.OPTIONS.build_id is None:
+      common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-install-script",
+                         "\n".join(self.script) + "\n")
+    else:
+      common.ZipWriteStr(output_zip, "build-id" + common.OPTIONS.build_id + "/META-INF/com/google/android/updater-install-script",
+                         "\n".join(self.script) + "\n")
 
   def AddToZip(self, input_zip, output_zip, input_path=None):
     """Write the accumulated script to the output_zip file.  input_zip
@@ -423,13 +427,21 @@ class EdifyGenerator(object):
     path for the binary instead of input_zip."""
 
     self.UnmountAll()
-
-    common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-script",
-                       "\n".join(self.script) + "\n")
+    if common.OPTIONS.build_id is None:
+      common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-script",
+                         "\n".join(self.script) + "\n")
+    else:
+      common.ZipWriteStr(output_zip, "build-id" + common.OPTIONS.build_id + "/META-INF/com/google/android/updater-script",
+                         "\n".join(self.script) + "\n")
 
     if input_path is None:
       data = input_zip.read("OTA/bin/updater")
     else:
       data = open(input_path, "rb").read()
-    common.ZipWriteStr(output_zip, "META-INF/com/google/android/update-binary",
-                       data, perms=0o755)
+
+    if common.OPTIONS.build_id is None:
+      common.ZipWriteStr(output_zip, "META-INF/com/google/android/update-binary",
+                         data, perms=0o755)
+    else:
+      common.ZipWriteStr(output_zip, "build-id" + common.OPTIONS.build_id + "/META-INF/com/google/android/update-binary",
+                         data, perms=0o755)

@@ -608,7 +608,10 @@ def CalculateFingerprint(oem_props, oem_dict, info_dict):
 def GetImageSquash(which, tmpdir):
   squashfs_extract = tempfile.NamedTemporaryFile()
   #unsquashfs -f -d extract/ sysfs.squash
-  path = os.path.join(tmpdir, "IMAGES", which + ".squash")
+  if which == "telaf":
+    path = os.path.join(tmpdir, "IMAGES", which + ".squashfs")
+  else:
+    path = os.path.join(tmpdir, "IMAGES", which + ".squash")
   print ("using path %s" % (path,))
   version = common.UnSquahfsTemp(path, which)
   print (" version  %s" % (version,))
@@ -1380,6 +1383,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   if OPTIONS.nad_update:
     system_image_size = system_diff.GetImageSize()
     print (" system_image_size %s" %(system_image_size))
+    if OPTIONS.pre_version_check:
+      input_tmp_squashfs = OPTIONS.input_tmp
+      system_image_version = GetImageSquash("system", input_tmp_squashfs)
+      print (" system_image_version %d" %(system_image_version))
 
   if vmbootsys_squash_vol_update:
     vmbootsys_diff = common.BlockDifference("vm-bootsys", OPTIONS.system_mount_path, vmbootsys_tgt, vmbootsys_src,
@@ -1404,6 +1411,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        disable_imgdiff=disable_imgdiff)
     modem_image_size = modem_diff.GetImageSize()
     print (" modem_image_size %s" %(modem_image_size))
+    if OPTIONS.pre_version_check:
+      input_tmp_squashfs = OPTIONS.input_tmp
+      modem_image_version = GetImageSquash("firmware", input_tmp_squashfs)
+      print (" modem_image_version %d" %(modem_image_version))
 
   if telaf_squash_vol_update:
     telaf_diff = common.BlockDifference("telaf", OPTIONS.system_mount_path, telaf_tgt, telaf_src,
@@ -1412,6 +1423,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        disable_imgdiff=disable_imgdiff)
     telaf_image_size = telaf_diff.GetImageSize()
     print (" telaf_image_size %s" %(telaf_image_size))
+    if OPTIONS.pre_version_check:
+      input_tmp_squashfs = OPTIONS.input_tmp
+      telaf_image_version = GetImageSquash("telaf", input_tmp_squashfs)
+      print (" telaf_image_version %d" %(telaf_image_version))
 
   if is_recoveryfs_volume_update:
     recoveryfs_diff = common.BlockDifference("recoveryfs", OPTIONS.system_mount_path, recoveryfs_tgt, recoveryfs_src,
@@ -1660,18 +1675,76 @@ else
   if OPTIONS.nad_update:
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                      'abort("Failed to erase blocks in system volume!");') % system_image_size);
-
+    if OPTIONS.pre_version_check and system_image_version:
+            script_pre_check = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+            script_pre_check.AppendExtra('');
+            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
+                           'abort("Failed to validate pre check version for system image !");') % system_image_version);
+            print(" print system_image_version : %s" % (system_image_version))
+            try:
+              f = open("image_versions.txt", "w")
+              f.write("rootfs : " + str(system_image_version) + "\n")
+            except IOError as e:
+              print("Error opening or writing to file: %s \n" %e)
+            finally:
+              f.close()
+            try:
+              f = open("image_versions.txt", "rb")
+              system_data = f.read()
+            except IOError as e:
+              print("Error opening or writing to file: %s \n" %e)
+            finally:
+              f.close()
+            common.ZipWriteStr(output_zip, "image_versions", system_data)
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.85)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                      'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+    if OPTIONS.pre_version_check and modem_image_version:
+      script_pre_check.AppendExtra('');
+      script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+                           'abort("Failed to validate pre check version for firmware image !");') % modem_image_version);
+      try:
+          f = open("image_versions.txt", "a")
+          f.write("firmware : " + str(modem_image_version) + "\n")
+      except IOError as e:
+          print("Error opening or writing to file: %s \n" %e)
+      finally:
+          f.close()
+      try:
+          f = open("image_versions.txt", "rb")
+          modem_data = f.read()
+      except IOError as e:
+          print("Error opening or writing to file: %s \n" %e)
+      finally:
+          f.close()
+      common.ZipWriteStr(output_zip, "image_versions", modem_data)
 
   if telaf_squash_vol_update and telaf_diff:
     telaf_diff.WriteScript(script, output_zip,
                           progress=0.85 if vendor_diff else 0.88)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                      'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
+    if OPTIONS.pre_version_check and telaf_image_version :
+      script_pre_check.AppendExtra('');
+      script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+                           'abort("Failed to validate pre check version for telaf image !");') % telaf_image_version);
+      try:
+          f = open("image_versions.txt", "a")
+          f.write("telaf : " + str(telaf_image_version))
+      except IOError as e:
+          print("Error opening or writing to file: %s \n" %e)
+      finally:
+          f.close()
+      try:
+          f = open("image_versions.txt", "rb")
+          telaf_data = f.read()
+      except IOError as e:
+          print("Error opening or writing to file: %s \n" %e)
+      finally:
+          f.close()
+      common.ZipWriteStr(output_zip, "image_versions", telaf_data)
 
   if vmbootsys_squash_vol_update and vmbootsys_diff:
     vmbootsys_diff.WriteScript(script, output_zip,
@@ -1788,6 +1861,8 @@ endif;
                         'abort("Failed to write modem ubifs image!");');
       script.AppendExtra('');
     script.Print("NAD update success...")
+    if OPTIONS.pre_version_check:
+      script_pre_check.AddToZipPreCheckVersion(target_zip, output_zip)
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source

@@ -1214,6 +1214,9 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
       source_version, OPTIONS.target_info_dict,
       fstab=OPTIONS.source_info_dict["fstab"])
 
+  if OPTIONS.nad_update:
+      updater_post_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+
   oem_props = OPTIONS.info_dict.get("oem_fingerprint_properties")
   recovery_mount_options = OPTIONS.source_info_dict.get(
       "recovery_mount_options")
@@ -1652,6 +1655,7 @@ else
                           progress=0.7 if vendor_diff else 0.8)
 
   if OPTIONS.nad_update:
+    system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     if OPTIONS.nad_fde:
       #copy updated /tmp image to partition
       script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
@@ -1664,20 +1668,26 @@ else
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.85)
+    modem_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                      'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
 
   if telaf_squash_vol_update and telaf_diff:
     telaf_diff.WriteScript(script, output_zip,
                           progress=0.85 if vendor_diff else 0.88)
+    telaf_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                      'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
 
   if vmbootsys_squash_vol_update and vmbootsys_diff:
     vmbootsys_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
+    vmbootsys_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
                      'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
+
+  if OPTIONS.nad_update:
+    updater_post_install_script.AddToZipPostInstall(target_zip, output_zip)
 
   if OPTIONS.nad_update:
     if OPTIONS.nad_fde:

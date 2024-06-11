@@ -735,6 +735,8 @@ def WriteFullOTAPackage(input_zip, output_zip):
 
   has_recovery_patch = HasRecoveryPatch(input_zip)
   block_based = OPTIONS.block_based
+  metadata["system_image_size"] = OPTIONS.info_dict["system_image_size"]
+  metadata["boot_image_size"] = OPTIONS.info_dict["boot_image_size"]
   metadata["ota-type"] = "BLOCK" if block_based else "FILE"
 
   if not OPTIONS.omit_prereq:
@@ -1095,7 +1097,8 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                    OPTIONS.source_info_dict),
       "ota-type": "BLOCK",
   }
-
+  metadata["system_image_size"] = OPTIONS.target_info_dict["system_image_size"]
+  metadata["boot_image_size"] = OPTIONS.target_info_dict["boot_image_size"]
   post_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.target_info_dict)
   pre_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.source_info_dict)
   is_downgrade = False
@@ -1835,7 +1838,6 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   source_version = OPTIONS.source_info_dict["recovery_api_version"]
   target_version = OPTIONS.target_info_dict["recovery_api_version"]
-
   if source_version == 0:
     print ("WARNING: generating edify script for a source that "
            "can't install it.")
@@ -1860,7 +1862,8 @@ def WriteIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                    OPTIONS.source_info_dict),
       "ota-type": "FILE",
   }
-
+  metadata["system_image_size"] = OPTIONS.target_info_dict["system_image_size"]
+  metadata["boot_image_size"] = OPTIONS.target_info_dict["boot_image_size"]
   post_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.target_info_dict)
   pre_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.source_info_dict)
   is_downgrade = False
@@ -2563,6 +2566,8 @@ def main(argv):
 
   # Non A/B OTAs rely on /cache partition to store temporary files.
   cache_size = OPTIONS.info_dict.get("cache_size", None)
+  radio_filesmap_data = input_zip.read("RADIO/filesmap")
+  common.ZipWriteStr(output_zip, "filesmap", radio_filesmap_data)
   if cache_size is None:
     print ("--- can't determine the cache partition size ---")
   OPTIONS.cache_size = cache_size

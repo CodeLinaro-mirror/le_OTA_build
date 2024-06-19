@@ -1068,7 +1068,8 @@ def ZipWrite(zip_file, filename, arcname=None, perms=0o644,
     epoch = datetime.datetime.fromtimestamp(0)
     timestamp = (datetime.datetime(2009, 1, 1) - epoch).total_seconds()
     os.utime(filename, (timestamp, timestamp))
-
+    if OPTIONS.build_id is not None:
+      arcname = "build-id" + OPTIONS.build_id + "/" + arcname
     zip_file.write(filename, arcname=arcname, compress_type=compress_type)
   finally:
     os.chmod(filename, saved_stat.st_mode)
@@ -1575,27 +1576,31 @@ class BlockDifference(object):
         'endif;' % (code, partition))
 
   def _WriteUpdate(self, script, output_zip):
+
     ZipWrite(output_zip,
-             '{}.transfer.list'.format(self.path),
-             '{}.transfer.list'.format(self.partition))
+            '{}.transfer.list'.format(self.path),
+            '{}.transfer.list'.format(self.partition))
     ZipWrite(output_zip,
-             '{}.new.dat'.format(self.path),
-             '{}.new.dat'.format(self.partition))
+            '{}.new.dat'.format(self.path),
+            '{}.new.dat'.format(self.partition))
     ZipWrite(output_zip,
-             '{}.patch.dat'.format(self.path),
-             '{}.patch.dat'.format(self.partition),
+            '{}.patch.dat'.format(self.path),
+            '{}.patch.dat'.format(self.partition),
              compress_type=zipfile.ZIP_STORED)
 
     if self.partition == "system":
       code = ErrorCode.SYSTEM_UPDATE_FAILURE
     else:
       code = ErrorCode.VENDOR_UPDATE_FAILURE
-
+    if OPTIONS.build_id is not None:
+      extra_path = "build-id" + OPTIONS.build_id + "/"
+    else:
+      extra_path = ""
     call = ('block_image_update("{device}", '
-            'package_extract_file("{partition}.transfer.list"), '
-            '"{partition}.new.dat", "{partition}.patch.dat") ||\n'
+            'package_extract_file( "{extra_path}{partition}.transfer.list"), '
+            '"{extra_path}{partition}.new.dat", "{extra_path}{partition}.patch.dat") ||\n'
             '  abort("E{code}: Failed to update {partition} image.");'.format(
-                device=self.device, partition=self.partition, code=code))
+                device=self.device, partition=self.partition, code=code, extra_path=extra_path))
     script.AppendExtra(script.WordWrap(call))
 
   def _HashBlocks(self, source, ranges): # pylint: disable=no-self-use

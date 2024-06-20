@@ -1137,10 +1137,18 @@ endif;
       if f.startswith("RADIO/MODEM_CONFIG/"):
         fn = f[19:]
         modem_config_data = input_zip.read(f)
-        fdest = "modem_config/" + fn
+        if OPTIONS.build_id is not None:
+          fdest = "build-id" + OPTIONS.build_id + "/modem_config/" + fn
+        else:
+          fdest = "modem_config/" + fn
         common.ZipWriteStr(output_zip, fdest, modem_config_data, perms=0o755)
     # extract the packed MODEM_CONFIG to /cache/recovery/modem_config/
-    script.AppendExtra('package_extract_dir("modem_config",'
+    if OPTIONS.build_id is not None:
+      modem_config_path = "build-id" + OPTIONS.build_id + "/modem_config"
+      script.AppendExtra('package_extract_dir("%s",'
+                           '"/cache/recovery/modem_config");' % (modem_config_path))
+    else:
+      script.AppendExtra('package_extract_dir("modem_config",'
                            '"/cache/recovery/modem_config");')
   if OPTIONS.install_only:
     script_install = script

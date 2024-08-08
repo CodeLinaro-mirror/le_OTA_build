@@ -923,6 +923,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if OPTIONS.nad_update:
       script.AppendExtra('');
+      script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+                         'abort("Failed to insert mtdblock dlkm!");');
+      script.AppendExtra('');
       script.AppendExtra('scan_mtd_partitions() || '
                      'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('');
@@ -1143,6 +1146,10 @@ endif;
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
     print (" set inactive to active slot ")
+    script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+                       'abort("Failed to remove mtdblock dlkm!");');
+    script.AppendExtra('');
     script.Print("NAD update success...")
     if OPTIONS.pre_version_check:
       script_pre_check.AddToZipPreCheckVersion(input_zip, output_zip)
@@ -1528,6 +1535,9 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
   if OPTIONS.nad_update:
     script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+                       'abort("Failed to insert mtdblock dlkm!");');
+    script.AppendExtra('');
     script.AppendExtra('scan_mtd_partitions() || '
                    'abort("Failed to scan mtd partitions!");');
     script.AppendExtra('');
@@ -1781,6 +1791,10 @@ endif;
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+                       'abort("Failed to remove mtdblock dlkm!");');
+    script.AppendExtra('');
+
     if modem_ubifs_vol_update:
       common.ZipWriteStr(output_zip, "modem.ubifs", modem_ubifs.data)
       script.AppendExtra('');

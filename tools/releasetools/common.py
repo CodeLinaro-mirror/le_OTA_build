@@ -586,6 +586,85 @@ def GetBootableImage(name, prebuilt_name, unpack_dir, tree_subdir,
     return File(name, data)
   return None
 
+def UnSquahfsTemp(filename, partition=None):
+  """Unsquahfs the given squashfs into a temporary directory and return the name.
+
+  Returns (tempdir, zipobj) where zipobj is a zipfile.ZipFile (of the
+  main file), open for reading.
+  """
+
+  tmp = tempfile.mkdtemp(prefix="targetfiles-")
+  OPTIONS.tempfiles.append(tmp)
+  print(" using squahfs image %s" % (filename),)
+
+  def unsquahfs_to_dir(filename, dirname):
+    cmd = ["unsquashfs", "-f", "-d",dirname, filename]
+    p = Run(cmd, stdout=subprocess.PIPE)
+    p.communicate()
+    if p.returncode != 0:
+      raise ExternalError("failed to unsquashfs input squashfs  \"%s\"" %
+                          (filename,))
+
+  unsquahfs_to_dir(filename, tmp)
+
+  print(" extracted to path  %s" % (tmp),)
+
+  version = []
+  if partition == "system":
+    #path = os.path.join(tmp, *fn.split("/"))
+    path = os.path.join(tmp, "etc/version")
+    print(" read from file %s" % (path),)
+    try:
+      with open(path) as f:
+        s = f.read()
+        print (" build.prop  %s" % (s),)
+        version = (s.split("-",1)[0])
+        print (" version  %s" % (version),)
+        version = version.rsplit('.',2)[1] + version.rsplit('.',2)[2]
+      return version
+    except ValueError:
+      print (" could not find any version for %s" % (partition),)
+      return ""
+  else:
+    if partition == "telaf":
+      version = "telaf"
+      tmp = tmp + "/systems/current"
+      path = os.path.join(tmp, "version")
+      print (" telaf version file %s" % (path),)
+      try:
+        with open(path) as f:
+          s = f.read()
+          print (" telaf version read from file %s" % (s),)
+          version = (s.split("-",1)[1]).split("_",1)[0]
+          print (" telaf version  %s" % (version),)
+          return version
+      except ValueError:
+        print (" could not find any version for %s" % (partition),)
+        return ""
+    else:
+      if partition == "firmware":
+        version = "modem"
+        print (" version  %s" % (version),)
+        tmp = tmp + "/image/"
+        path = os.path.join(tmp, "Ver_Info.txt")
+        print (" modem version file %s" % (path),)
+        file1 = open(path, 'r')
+        Lines = file1.readlines()
+        count = 0
+        # Strips the newline character
+        for line in Lines:
+          count += 1
+          #Meta_Build_ID
+          if line.find('Meta_Build_ID') != -1:
+            print(" Meta build %s" % line)
+            version = (line.split("-",1)[1]).split("-",1)[0]
+            print(" Meta Version %s" % version)
+            break
+        return version
+      else:
+        print (" could not find any version for %s" % (partition),)
+        return ""
+
 
 def UnzipTemp(filename, pattern=None):
   """Unzip the given archive into a temporary directory and return the name.
@@ -1380,6 +1459,7 @@ class BlockDifference(object):
     self.partition = partition
     self.check_first_block = check_first_block
     self.disable_imgdiff = disable_imgdiff
+    self.tgt_image_size = []
 
     if version is None:
       version = 1
@@ -1399,6 +1479,9 @@ class BlockDifference(object):
     self._required_cache = b.max_stashed_size
     self.touched_src_ranges = b.touched_src_ranges
     self.touched_src_sha1 = b.touched_src_sha1
+    print ("source range %s" %(b.tgt_image_size))
+    if (b.tgt_image_size):
+      self.tgt_image_size = b.tgt_image_size
 
     if system_mount_point == '/':
       partition = ''
@@ -1412,6 +1495,9 @@ class BlockDifference(object):
   @property
   def required_cache(self):
     return self._required_cache
+
+  def GetImageSize(self):
+    return self.tgt_image_size
 
   def WriteScript(self, script, output_zip, progress=None):
     if not self.src:
@@ -1428,6 +1514,19 @@ class BlockDifference(object):
     # post installation verification always since we
     # can afford OTA to take a little longer to finish.
     if OPTIONS.ab_ota_update or OPTIONS.verify:
+      self._WritePostInstallVerifyScript(script)
+
+  def WritePostInstallScript(self, script, output_zip, progress=None):
+    if not self.src:
+      # write the output unconditionally
+      script.Print("Writing script post installation %s" % (self.partition,))
+    else:
+      script.Print("Writing post installation after verification %s" % (self.partition,))
+
+    # On targets that support A/B boot, perform the
+    # post installation verification always since we
+    # can afford OTA to take a little longer to finish.
+    if OPTIONS.ab_ota_update or OPTIONS.verify or OPTIONS.nad_update:
       self._WritePostInstallVerifyScript(script)
 
   def WriteStrictVerifyScript(self, script):

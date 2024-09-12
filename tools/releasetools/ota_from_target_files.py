@@ -1811,18 +1811,6 @@ else
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
                      'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
 
-  if modem_squash_vol_update and modem_diff:
-    modem_diff.WriteScript(script, output_zip,
-                          progress=0.8 if vendor_diff else 0.9)
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
-                     'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
-
-  if telaf_squash_vol_update and telaf_diff:
-    telaf_diff.WriteScript(script, output_zip,
-                          progress=0.81 if vendor_diff else 0.88)
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
-                     'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
-
   if lxcrootfs_squash_vol_update and lxcrootfs_diff:
     lxcrootfs_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)

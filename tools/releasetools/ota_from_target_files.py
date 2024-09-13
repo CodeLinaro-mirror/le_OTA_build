@@ -1725,7 +1725,7 @@ else
     system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     if OPTIONS.nad_fde:
       #copy updated /tmp image to partition
-      script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
+      script.AppendExtra(('copy_decrypted_image_to_partition("/dev/block/bootdevice/by-name/system", "%d" ) || '
                        'abort("Failed to copy system FDE image!");') % system_image_size);
 
   if OPTIONS.nad_update:
@@ -1810,16 +1810,6 @@ else
     vmbootsys_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
                      'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
-
-  if OPTIONS.nad_update:
-    if OPTIONS.nad_fde:
-      #copy updated /tmp image to partition
-      script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
-                       'abort("Failed to copy system FDE image!");') % system_image_size);
-
-  if OPTIONS.nad_update:
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
-                     'abort("Failed to erase blocks in system volume!");') % system_image_size);
 
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,

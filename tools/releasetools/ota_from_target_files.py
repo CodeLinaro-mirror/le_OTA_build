@@ -863,6 +863,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           lxcrootfs_diff = common.BlockDifference("lxcrootfs", OPTIONS.system_mount_path, lxcrootfs_tgt, src=None)
           lxcrootfs_image_size = lxcrootfs_diff.GetImageSize()
           print (" lxcrootfs_image_size %s" %(lxcrootfs_image_size))
+          if OPTIONS.pre_version_check:
+            input_tmp_squashfs = OPTIONS.input_tmp
+            lxcrootfs_image_version = GetImageSquash("lxcrootfs", input_tmp_squashfs)
+            print (" lxcrootfs_image_version %d" %(lxcrootfs_image_version))
 
         # enable full update for modem with squashfs image
         if modem_squash_vol_update:
@@ -961,8 +965,28 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                          'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
         if lxcrootfs_squash_vol_update:
           lxcrootfs_diff.WriteScript(script, output_zip)
+          lxcrootfs_diff.WritePostInstallScript(updater_post_install_script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                          'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
+          if OPTIONS.pre_version_check and lxcrootfs_image_version:
+            script_pre_check.AppendExtra('');
+            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+                           'abort("Failed to validate pre check version for lxcrootfs image !");') % lxcrootfs_image_version);
+            try:
+              f = open("image_versions.txt", "a")
+              f.write("lxcrootfs : " + str(lxcrootfs_image_version) + "\n")
+            except IOError as e:
+              print("Error opening or writing to file: %s \n" %e)
+            finally:
+              f.close()
+            try:
+              f = open("image_versions.txt", "rb")
+              lxcrootfs_data = f.read()
+            except IOError as e:
+              print("Error opening or reading to file: %s \n" %e)
+            finally:
+              f.close()
+            common.ZipWriteStr(output_zip, "image_versions", lxcrootfs_data)
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
           modem_diff.WritePostInstallScript(updater_post_install_script, output_zip)
@@ -1413,6 +1437,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        disable_imgdiff=disable_imgdiff)
     lxcrootfs_image_size = lxcrootfs_diff.GetImageSize()
     print (" lxcrootfs_image_size %s" %(lxcrootfs_image_size))
+    if OPTIONS.pre_version_check:
+      input_tmp_squashfs = OPTIONS.input_tmp
+      lxcrootfs_image_version = GetImageSquash("lxcrootfs", input_tmp_squashfs)
+      print (" lxcrootfs_image_version %d" %(lxcrootfs_image_version))
 
   if modem_squash_vol_update:
     modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
@@ -1770,9 +1798,6 @@ else
                      'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
 
   if OPTIONS.nad_update:
-    updater_post_install_script.AddToZipPostInstall(target_zip, output_zip)
-
-  if OPTIONS.nad_update:
     if OPTIONS.nad_fde:
       #copy updated /tmp image to partition
       script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
@@ -1797,13 +1822,35 @@ else
   if lxcrootfs_squash_vol_update and lxcrootfs_diff:
     lxcrootfs_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
+    lxcrootfs_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                      'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
-
+    if OPTIONS.pre_version_check and lxcrootfs_image_version:
+      script_pre_check.AppendExtra('');
+      script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+                     'abort("Failed to validate pre check version for lxcrootfs image !");') % lxcrootfs_image_version);
+      try:
+        f = open("image_versions.txt", "a")
+        f.write("lxcrootfs : " + str(lxcrootfs_image_version) + "\n")
+      except IOError as e:
+        print("Error opening or writing to file: %s \n" %e)
+      finally:
+        f.close()
+      try:
+        f = open("image_versions.txt", "rb")
+        lxcrootfs_data = f.read()
+      except IOError as e:
+        print("Error opening or reading to file: %s \n" %e)
+      finally:
+        f.close()
+      common.ZipWriteStr(output_zip, "image_versions", lxcrootfs_data)
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
   if vendor_dlkm_exist and vdlkm_diff:
     vdlkm_diff.WriteScript(script, output_zip, progress=0.1)
+
+  if OPTIONS.nad_update:
+    updater_post_install_script.AddToZipPostInstall(target_zip, output_zip)
 
   if OPTIONS.two_step:
     common.ZipWriteStr(output_zip, "boot.img", target_boot.data)

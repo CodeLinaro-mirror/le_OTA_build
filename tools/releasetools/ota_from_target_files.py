@@ -1672,7 +1672,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                          target_boot.size, target_boot.sha1))
       # cache check is not used for boot imcremental for nad-prod feature since boot file back up is not used,
       # nad has dual partitions back is not required
-      if not OPTIONS.nad_update:
+      if not (OPTIONS.nad_update, OPTIONS.nad_update_emmc):
         size.append(target_boot.size)
       else:
         print (" skip boot cache check for nad ")
@@ -3002,6 +3002,10 @@ def main(argv):
   OPTIONS.nad_update = OPTIONS.info_dict.get("le_target_supports_nad", "0") == "1"
   if OPTIONS.nad_update:
     print ("Including  A/B sync for nad..");
+
+  OPTIONS.nad_update_emmc = OPTIONS.info_dict.get("le_target_supports_nad_emmc", "0") == "1"
+  if OPTIONS.nad_update_emmc:
+    print ("Including nad emmc support..");
 
   OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"
   if OPTIONS.nad_fde:

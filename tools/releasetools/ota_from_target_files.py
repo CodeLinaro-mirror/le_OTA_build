@@ -189,6 +189,7 @@ OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
 OPTIONS.pre_version_check = False
+OPTIONS.mirror_sync = False
 
 def MostPopularKey(d, default):
   """Given a dict, return the key corresponding to the largest
@@ -863,6 +864,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           lxcrootfs_diff = common.BlockDifference("lxcrootfs", OPTIONS.system_mount_path, lxcrootfs_tgt, src=None)
           lxcrootfs_image_size = lxcrootfs_diff.GetImageSize()
           print (" lxcrootfs_image_size %s" %(lxcrootfs_image_size))
+          if OPTIONS.pre_version_check:
+            input_tmp_squashfs = OPTIONS.input_tmp
+            lxcrootfs_image_version = GetImageSquash("lxcrootfs", input_tmp_squashfs)
+            print (" lxcrootfs_image_version %d" %(lxcrootfs_image_version))
 
         # enable full update for modem with squashfs image
         if modem_squash_vol_update:
@@ -929,6 +934,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                          'abort("Failed to insert mtdblock dlkm!");');
       script.AppendExtra('');
+      updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+                         'abort("Failed to insert mtdblock dlkm!");');
+      updater_post_install_script.AppendExtra('');
+
       script.AppendExtra('scan_mtd_partitions() || '
                      'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('');
@@ -943,6 +952,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
           if OPTIONS.pre_version_check and system_image_version:
             script_pre_check = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+            script_pre_check.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+                         'abort("Failed to insert mtdblock dlkm!");');
+            script_pre_check.AppendExtra('');
             script_pre_check.AppendExtra('');
             script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
                            'abort("Failed to validate pre check version for system image !");') % system_image_version);
@@ -961,8 +973,28 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                          'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
         if lxcrootfs_squash_vol_update:
           lxcrootfs_diff.WriteScript(script, output_zip)
+          lxcrootfs_diff.WritePostInstallScript(updater_post_install_script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                          'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
+          if OPTIONS.pre_version_check and lxcrootfs_image_version:
+            script_pre_check.AppendExtra('');
+            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+                           'abort("Failed to validate pre check version for lxcrootfs image !");') % lxcrootfs_image_version);
+            try:
+              f = open("image_versions.txt", "a")
+              f.write("lxcrootfs : " + str(lxcrootfs_image_version) + "\n")
+            except IOError as e:
+              print("Error opening or writing to file: %s \n" %e)
+            finally:
+              f.close()
+            try:
+              f = open("image_versions.txt", "rb")
+              lxcrootfs_data = f.read()
+            except IOError as e:
+              print("Error opening or reading to file: %s \n" %e)
+            finally:
+              f.close()
+            common.ZipWriteStr(output_zip, "image_versions", lxcrootfs_data)
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
           modem_diff.WritePostInstallScript(updater_post_install_script, output_zip)
@@ -995,6 +1027,9 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
             telaf_data = f.read()
             f.close()
             common.ZipWriteStr(output_zip, "image_versions", telaf_data)
+        updater_post_install_script.AppendExtra('');
+        updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+                       'abort("Failed to remove mtdblock dlkm!");');
         updater_post_install_script.AddToZipPostInstall(input_zip, output_zip)
 
   else:
@@ -1155,6 +1190,9 @@ endif;
     script.AppendExtra('');
     script.Print("NAD update success...")
     if OPTIONS.pre_version_check:
+      script_pre_check.AppendExtra('');
+      script_pre_check.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+                       'abort("Failed to remove mtdblock dlkm!");');
       script_pre_check.AddToZipPreCheckVersion(input_zip, output_zip)
 
   script.SetProgress(1)
@@ -1413,6 +1451,10 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
                                        disable_imgdiff=disable_imgdiff)
     lxcrootfs_image_size = lxcrootfs_diff.GetImageSize()
     print (" lxcrootfs_image_size %s" %(lxcrootfs_image_size))
+    if OPTIONS.pre_version_check:
+      input_tmp_squashfs = OPTIONS.input_tmp
+      lxcrootfs_image_version = GetImageSquash("lxcrootfs", input_tmp_squashfs)
+      print (" lxcrootfs_image_version %d" %(lxcrootfs_image_version))
 
   if modem_squash_vol_update:
     modem_diff = common.BlockDifference("modem", OPTIONS.system_mount_path, modem_tgt, modem_src,
@@ -1609,7 +1651,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
     # check if incremental boot is enabled
     has_incremental_boot = HasIncrementalBoot(source_zip)
-    print (" has_incremental_boot: %s ") % (has_incremental_boot)
+    print ((" has_incremental_boot: %s ") % (has_incremental_boot))
 
     # MTD devices usually have low free space in cache,
     # so disable incremental upgrade of boot.img on MTD
@@ -1630,7 +1672,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                          target_boot.size, target_boot.sha1))
       # cache check is not used for boot imcremental for nad-prod feature since boot file back up is not used,
       # nad has dual partitions back is not required
-      if not OPTIONS.nad_update:
+      if not (OPTIONS.nad_update, OPTIONS.nad_update_emmc):
         size.append(target_boot.size)
       else:
         print (" skip boot cache check for nad ")
@@ -1770,9 +1812,6 @@ else
                      'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
 
   if OPTIONS.nad_update:
-    updater_post_install_script.AddToZipPostInstall(target_zip, output_zip)
-
-  if OPTIONS.nad_update:
     if OPTIONS.nad_fde:
       #copy updated /tmp image to partition
       script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
@@ -1797,13 +1836,38 @@ else
   if lxcrootfs_squash_vol_update and lxcrootfs_diff:
     lxcrootfs_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.9)
+    lxcrootfs_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                      'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
-
+    if OPTIONS.pre_version_check and lxcrootfs_image_version:
+      script_pre_check.AppendExtra('');
+      script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+                     'abort("Failed to validate pre check version for lxcrootfs image !");') % lxcrootfs_image_version);
+      try:
+        f = open("image_versions.txt", "a")
+        f.write("lxcrootfs : " + str(lxcrootfs_image_version) + "\n")
+      except IOError as e:
+        print("Error opening or writing to file: %s \n" %e)
+      finally:
+        f.close()
+      try:
+        f = open("image_versions.txt", "rb")
+        lxcrootfs_data = f.read()
+      except IOError as e:
+        print("Error opening or reading to file: %s \n" %e)
+      finally:
+        f.close()
+      common.ZipWriteStr(output_zip, "image_versions", lxcrootfs_data)
   if vendor_diff:
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
   if vendor_dlkm_exist and vdlkm_diff:
     vdlkm_diff.WriteScript(script, output_zip, progress=0.1)
+
+  if OPTIONS.nad_update:
+    updater_post_install_script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+                       'abort("Failed to remove mtdblock dlkm!");');
+    updater_post_install_script.AddToZipPostInstall(target_zip, output_zip)
 
   if OPTIONS.two_step:
     common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
@@ -1886,6 +1950,9 @@ endif;
       script.AppendExtra('');
     script.Print("NAD update success...")
     if OPTIONS.pre_version_check:
+      script_pre_check.AppendExtra('');
+      script_pre_check.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+                       'abort("Failed to remove mtdblock dlkm!");');
       script_pre_check.AddToZipPreCheckVersion(target_zip, output_zip)
 
   script.SetProgress(1)
@@ -2935,6 +3002,10 @@ def main(argv):
   OPTIONS.nad_update = OPTIONS.info_dict.get("le_target_supports_nad", "0") == "1"
   if OPTIONS.nad_update:
     print ("Including  A/B sync for nad..");
+
+  OPTIONS.nad_update_emmc = OPTIONS.info_dict.get("le_target_supports_nad_emmc", "0") == "1"
+  if OPTIONS.nad_update_emmc:
+    print ("Including nad emmc support..");
 
   OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"
   if OPTIONS.nad_fde:

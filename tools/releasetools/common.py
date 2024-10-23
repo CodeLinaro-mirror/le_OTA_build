@@ -612,12 +612,12 @@ def UnSquahfsTemp(filename, partition=None):
   version = []
   if partition == "system":
     #path = os.path.join(tmp, *fn.split("/"))
-    path = os.path.join(tmp, "etc/version")
+    path = os.path.join(tmp, "etc/timestamp")
     print(" read from file %s" % (path),)
     try:
       with open(path) as f:
         s = f.read()
-        print (" etc/version  %s" % (s),)
+        print (" etc/timestamp  %s" % (s),)
         version = s
       return version
     except ValueError:

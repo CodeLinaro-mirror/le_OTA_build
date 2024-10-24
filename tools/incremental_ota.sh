@@ -85,7 +85,7 @@ export FSCONFIGFOPTS=" "
 block_based=" "
 python_version="python3"
 system_path=" "
-pre_version_check = " "
+pre_version_check=" "
 
 if [ "$#" -gt 5 ]; then
     IFS=' ' read -a allopts <<< "$@"

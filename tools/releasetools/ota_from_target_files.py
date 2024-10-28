@@ -942,6 +942,12 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
                      'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('');
 
+    if OPTIONS.nad_fde:
+      script.AppendExtra('setup_inactive_dmcrypt_device("rootfs") || '
+                         'abort("Failed to setup_inactive_dmcrypt_device for rootfs!");');
+      system_diff.device = "/dev/mapper/rootfs_inactive"
+      script.AppendExtra('');
+
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
         system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
@@ -1169,6 +1175,11 @@ endif;
     script.AppendExtra('');
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
+    script.AppendExtra('');
+
+  if OPTIONS.nad_fde:
+    script.AppendExtra('close_inactive_dmcrypt_device("rootfs") || '
+                       'abort("Failed to close_inactive_dmcrypt_device for rootfs!");');
     script.AppendExtra('');
 
   if OPTIONS.nad_update:
@@ -1605,6 +1616,12 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                    'abort("Failed to scan mtd partitions!");');
     script.AppendExtra('');
 
+  if OPTIONS.nad_fde:
+    script.AppendExtra('setup_inactive_dmcrypt_device("rootfs") || '
+                       'abort("Failed to setup_inactive_dmcrypt_device for rootfs!");');
+    system_diff.device = "/dev/mapper/rootfs_inactive"
+    script.AppendExtra('');
+
   script.Print("Verifying current system...")
 
   device_specific.IncrementalOTA_VerifyBegin()
@@ -1698,11 +1715,6 @@ else
     # Stage 3/3: Make changes.
     script.Comment("Stage 3/3")
 
-  # Verify the existing partitions.
-  if OPTIONS.nad_fde:
-    #copy FDE image to /tmp
-    script.AppendExtra('copy_decrypted_image_to_temp("/dev/block/bootdevice/by-name/system") || '
-                     'abort("Failed to copy system FDE image!");');
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
@@ -1915,6 +1927,11 @@ endif;
                             'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
       script_mirror.AppendExtra('');
       script_mirror.AddToZipMirror(source_zip, output_zip)
+
+  if OPTIONS.nad_fde:
+    script.AppendExtra('close_inactive_dmcrypt_device("rootfs") || '
+                       'abort("Failed to close_inactive_dmcrypt_device for rootfs!");');
+    script.AppendExtra('');
 
   if OPTIONS.nad_update:
     script.AppendExtra('');

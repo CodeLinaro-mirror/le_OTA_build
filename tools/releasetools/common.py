@@ -610,7 +610,7 @@ def UnSquahfsTemp(filename, partition=None):
   print(" extracted to path  %s" % (tmp),)
 
   version = []
-  if partition == "system" or partition == "lxcrootfs":
+  if partition == "system":
     #path = os.path.join(tmp, *fn.split("/"))
     path = os.path.join(tmp, "etc/version")
     print(" read from file %s" % (path),)
@@ -618,6 +618,18 @@ def UnSquahfsTemp(filename, partition=None):
       with open(path) as f:
         s = f.read()
         print (" etc/version  %s" % (s),)
+        version = s
+      return version
+    except ValueError:
+      print (" could not find any version for %s" % (partition),)
+      return ""
+  elif partition == "lxcrootfs":
+    path = os.path.join(tmp, "etc/timestamp")
+    print(" read from file %s" % (path),)
+    try:
+      with open(path) as f:
+        s = f.read()
+        print (" etc/timestamp  %s" % (s),)
         version = s
       return version
     except ValueError:

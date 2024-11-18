@@ -92,9 +92,9 @@ Usage:  ota_from_target_files [flags] input_target_files output_ota_package
       Generate a block-based OTA if possible.  Will fall back to a
       file-based OTA if the target_files is older and doesn't support
       block-based OTAs.
-      
+
   --ubuntu
-      When generate the OTA for ubuntu, it is needed to add this value. 
+      When generate the OTA for ubuntu, it is needed to add this value.
 
   -b  (--binary)  <file>
       Use the given binary as the update-binary in the output package,
@@ -678,7 +678,7 @@ def WriteFullOTAPackage(input_zip, output_zip):
   # in the target build.
   script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
   updater_post_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
-  
+
   oem_props = OPTIONS.info_dict.get("oem_fingerprint_properties")
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
   dm_verity_nand = OPTIONS.info_dict.get("dm_verity_nand", "0") == "1"
@@ -827,7 +827,7 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     # image.  This has the effect of writing new data from the package
     # to the entire partition, but lets us reuse the updater code that
     # writes incrementals to do it.
-    
+
     # If Full OTA is for ubunt, the Full OTA will not upgrade
     # the system.img
     vendor_dlkm_exist = OPTIONS.info_dict.get("vendor_dlkm_exist", "0") == "1"
@@ -1598,6 +1598,9 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                        'abort("Failed to insert mtdblock dlkm!");');
     script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+                                            'abort("Failed to insert mtdblock dlkm!");');
+    updater_post_install_script.AppendExtra('');
     script.AppendExtra('scan_mtd_partitions() || '
                    'abort("Failed to scan mtd partitions!");');
     script.AppendExtra('');
@@ -1725,7 +1728,7 @@ else
     system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     if OPTIONS.nad_fde:
       #copy updated /tmp image to partition
-      script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
+      script.AppendExtra(('copy_decrypted_image_to_partition("/dev/block/bootdevice/by-name/system", "%d" ) || '
                        'abort("Failed to copy system FDE image!");') % system_image_size);
 
   if OPTIONS.nad_update:
@@ -1733,6 +1736,8 @@ else
                      'abort("Failed to erase blocks in system volume!");') % system_image_size);
     if OPTIONS.pre_version_check and system_image_version:
             script_pre_check = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+            script_pre_check.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+                                         'abort("Failed to insert mtdblock dlkm!");');
             script_pre_check.AppendExtra('');
             script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
                            'abort("Failed to validate pre check version for system image !");') % system_image_version);
@@ -1810,28 +1815,6 @@ else
     vmbootsys_diff.WritePostInstallScript(updater_post_install_script, output_zip)
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/vm-bootsys", "%d" ) || '
                      'abort("Failed to erase blocks in vm-bootsys volume!");') % vmbootsys_image_size);
-
-  if OPTIONS.nad_update:
-    if OPTIONS.nad_fde:
-      #copy updated /tmp image to partition
-      script.AppendExtra(('copy_decrypted_image_to_partion("/dev/block/bootdevice/by-name/system", "%d" ) || '
-                       'abort("Failed to copy system FDE image!");') % system_image_size);
-
-  if OPTIONS.nad_update:
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
-                     'abort("Failed to erase blocks in system volume!");') % system_image_size);
-
-  if modem_squash_vol_update and modem_diff:
-    modem_diff.WriteScript(script, output_zip,
-                          progress=0.8 if vendor_diff else 0.9)
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
-                     'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
-
-  if telaf_squash_vol_update and telaf_diff:
-    telaf_diff.WriteScript(script, output_zip,
-                          progress=0.81 if vendor_diff else 0.88)
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
-                     'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
 
   if lxcrootfs_squash_vol_update and lxcrootfs_diff:
     lxcrootfs_diff.WriteScript(script, output_zip,

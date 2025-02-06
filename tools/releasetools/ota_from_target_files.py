@@ -1738,10 +1738,6 @@ else
 
   if OPTIONS.nad_update:
     system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
-    if OPTIONS.nad_fde:
-      #copy updated /tmp image to partition
-      script.AppendExtra(('copy_decrypted_image_to_partition("/dev/block/bootdevice/by-name/system", "%d" ) || '
-                       'abort("Failed to copy system FDE image!");') % system_image_size);
 
   if OPTIONS.nad_update:
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '

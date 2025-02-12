@@ -22,8 +22,10 @@
 #include <string.h>
 #include <inttypes.h>
 
+#ifdef SELINUX_IS_ENABLE
 #include <selinux/selinux.h>
 #include <selinux/label.h>
+#endif
 
 #include "private/android_filesystem_config.h"
 
@@ -69,6 +71,7 @@ static int canned_used = 0;
 
 static int hex_mode = 0;
 
+#ifdef SELINUX_IS_ENABLE
 static struct selabel_handle* get_sehnd(const char* context_file) {
   struct selinux_opt seopts[] = { { SELABEL_OPT_PATH, context_file } };
   struct selabel_handle* sehnd = selabel_open(SELABEL_CTX_FILE, seopts, 1);
@@ -79,6 +82,7 @@ static struct selabel_handle* get_sehnd(const char* context_file) {
   }
   return sehnd;
 }
+#endif
 
 static void usage() {
   fprintf(stderr, "Usage: fs_config [-p prefix] [-c fs_config_file] "
@@ -263,9 +267,11 @@ int main(int argc, char** argv) {
     exit(EXIT_FAILURE);
   }
 
+ #ifdef SELINUX_IS_ENABLE
   if (context_file != NULL) {
     sehnd = get_sehnd(context_file);
   }
+ #endif
 
   while (fgets(buffer, 1023, stdin) != NULL) {
     int is_dir = 0;
@@ -347,6 +353,7 @@ int main(int argc, char** argv) {
 
       snprintf(full_name, full_name_size, "/%s", buffer);
 
+  #ifdef SELINUX_IS_ENABLE
       char* secontext;
       if (selabel_lookup(sehnd, &secontext, full_name, mode)) {
         secontext = strdup("u:object_r:unlabeled:s0");
@@ -355,7 +362,9 @@ int main(int argc, char** argv) {
       printf(" selabel=%s", secontext);
       free(full_name);
       freecon(secontext);
+  #endif
     }
+  
 
     if (print_capabilities) {
       printf(" capabilities=0x%" PRIx64, capabilities);

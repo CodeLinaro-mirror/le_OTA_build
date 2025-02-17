@@ -934,6 +934,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                          'abort("Failed to insert mtdblock dlkm!");');
       script.AppendExtra('');
+
+      script.AppendExtra('run_program("/sbin/restorecon","/dev/mtdblock*") || '
+                         'abort("Failed to restorecon on /dev/mtdblock* !");');
+      script.AppendExtra('');
+
       updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                          'abort("Failed to insert mtdblock dlkm!");');
       updater_post_install_script.AppendExtra('');
@@ -1609,6 +1614,11 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                        'abort("Failed to insert mtdblock dlkm!");');
     script.AppendExtra('');
+
+    script.AppendExtra('run_program("/sbin/restorecon","/dev/mtdblock*") || '
+                         'abort("Failed to restorecon on /dev/mtdblock* !");');
+    script.AppendExtra('');
+
     updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                                             'abort("Failed to insert mtdblock dlkm!");');
     updater_post_install_script.AppendExtra('');

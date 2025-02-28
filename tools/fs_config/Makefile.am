@@ -2,11 +2,11 @@ ACLOCAL_AMFLAGS = -I m4
 
 AM_CPPFLAGS := \
               -I. \
-              -I$(WORKSPACE)/system/core/include 
+              -I$(WORKSPACE)/system/core/include
 
 if SELINUX_ENABLE
 AM_CPPFLAGS += $(LIBSELINUX_CFLAGS)
-fs_config_CFLAGS := -DSELINUX_IS_ENABLE
+AM_CPPFLAGS += -DSELINUX_IS_ENABLE
 endif
 
 c_sources := fs_config.c

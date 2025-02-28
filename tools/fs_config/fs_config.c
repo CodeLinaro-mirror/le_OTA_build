@@ -364,7 +364,7 @@ int main(int argc, char** argv) {
       freecon(secontext);
   #endif
     }
-  
+
 
     if (print_capabilities) {
       printf(" capabilities=0x%" PRIx64, capabilities);

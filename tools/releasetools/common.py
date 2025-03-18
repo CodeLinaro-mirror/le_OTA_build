@@ -16,7 +16,7 @@ import copy
 import errno
 import getopt
 import getpass
-import imp
+import importlib.util
 import os
 import platform
 import re
@@ -1238,15 +1238,22 @@ class DeviceSpecificParams(object):
         return
       try:
         if os.path.isdir(path):
-          info = imp.find_module("releasetools", [path])
+            module_name = "releasetools"
+            module_path = os.path.join(path, f"{moudule_name}.py")
         else:
-          d, f = os.path.split(path)
-          b, x = os.path.splitext(f)
-          if x == ".py":
-            f = b
-          info = imp.find_module(f, [d])
+            module_path = path
+            module_name = os.path.splitext(os.path.basename(path))[0]
+        if not os.path.exists(module_path):
+            raise ImportError(f"module file {module_path} not found")
+
+        spec = importlib.util.spec_from_file_location(module_name,module_path)
+        if spec is None:
+            raise ImportError(f"module file {module_path} not found")
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.module = module
         print(("loaded device-specific extensions from", path))
-        self.module = imp.load_module("device_specific", *info)
       except ImportError:
         print ("unable to load device-specific module; assuming none")
 

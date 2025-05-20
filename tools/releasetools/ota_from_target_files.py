@@ -931,6 +931,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if OPTIONS.nad_update:
       script.AppendExtra('');
+      script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
+                         'abort("Failed to insert gluebi dlkm!");');
+      script.AppendExtra('');
+
       script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                          'abort("Failed to insert mtdblock dlkm!");');
       script.AppendExtra('');
@@ -1198,6 +1202,9 @@ endif;
     script.AppendExtra('');
     script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
                        'abort("Failed to remove mtdblock dlkm!");');
+    script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
+                       'abort("Failed to remove gluebi dlkm!");');
     script.AppendExtra('');
     script.Print("NAD update success...")
     if OPTIONS.pre_version_check:
@@ -1606,6 +1613,9 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
   if OPTIONS.nad_update:
     script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
+                       'abort("Failed to insert gluebi dlkm!");');
+    script.AppendExtra('');
     script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                        'abort("Failed to insert mtdblock dlkm!");');
     script.AppendExtra('');
@@ -1936,6 +1946,9 @@ endif;
     script.AppendExtra('');
     script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
                        'abort("Failed to remove mtdblock dlkm!");');
+    script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
+                       'abort("Failed to remove gluebi dlkm!");');
     script.AppendExtra('');
 
     if modem_ubifs_vol_update:

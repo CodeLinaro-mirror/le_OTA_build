@@ -931,6 +931,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if OPTIONS.nad_update:
       script.AppendExtra('');
+      script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
+                         'abort("Failed to insert gluebi dlkm!");');
+      script.AppendExtra('');
+
       script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                          'abort("Failed to insert mtdblock dlkm!");');
       script.AppendExtra('');
@@ -940,6 +944,12 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
       script.AppendExtra('scan_mtd_partitions() || '
                      'abort("Failed to scan mtd partitions!");');
+      script.AppendExtra('');
+
+    if OPTIONS.nad_fde:
+      script.AppendExtra('setup_inactive_dmcrypt_device("rootfs") || '
+                         'abort("Failed to setup_inactive_dmcrypt_device for rootfs!");');
+      system_diff.device = "/dev/mapper/rootfs_inactive"
       script.AppendExtra('');
 
     if not OPTIONS.ubuntu_based:
@@ -1171,6 +1181,11 @@ endif;
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
 
+  if OPTIONS.nad_fde:
+    script.AppendExtra('close_inactive_dmcrypt_device("rootfs") || '
+                       'abort("Failed to close_inactive_dmcrypt_device for rootfs!");');
+    script.AppendExtra('');
+
   if OPTIONS.nad_update:
     # disable full of modem.ubifs, due to more size, donot include modem.ubifs in full update
     #if modem_ubifs_vol_update:
@@ -1187,6 +1202,9 @@ endif;
     script.AppendExtra('');
     script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
                        'abort("Failed to remove mtdblock dlkm!");');
+    script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
+                       'abort("Failed to remove gluebi dlkm!");');
     script.AppendExtra('');
     script.Print("NAD update success...")
     if OPTIONS.pre_version_check:
@@ -1595,6 +1613,9 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
   if OPTIONS.nad_update:
     script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
+                       'abort("Failed to insert gluebi dlkm!");');
+    script.AppendExtra('');
     script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
                        'abort("Failed to insert mtdblock dlkm!");');
     script.AppendExtra('');
@@ -1603,6 +1624,12 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
     updater_post_install_script.AppendExtra('');
     script.AppendExtra('scan_mtd_partitions() || '
                    'abort("Failed to scan mtd partitions!");');
+    script.AppendExtra('');
+
+  if OPTIONS.nad_fde:
+    script.AppendExtra('setup_inactive_dmcrypt_device("rootfs") || '
+                       'abort("Failed to setup_inactive_dmcrypt_device for rootfs!");');
+    system_diff.device = "/dev/mapper/rootfs_inactive"
     script.AppendExtra('');
 
   script.Print("Verifying current system...")
@@ -1698,11 +1725,6 @@ else
     # Stage 3/3: Make changes.
     script.Comment("Stage 3/3")
 
-  # Verify the existing partitions.
-  if OPTIONS.nad_fde:
-    #copy FDE image to /tmp
-    script.AppendExtra('copy_decrypted_image_to_temp("/dev/block/bootdevice/by-name/system") || '
-                     'abort("Failed to copy system FDE image!");');
   system_diff.WriteVerifyScript(script, touched_blocks_only=True)
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteVerifyScript(script, touched_blocks_only=True)
@@ -1726,10 +1748,6 @@ else
 
   if OPTIONS.nad_update:
     system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
-    if OPTIONS.nad_fde:
-      #copy updated /tmp image to partition
-      script.AppendExtra(('copy_decrypted_image_to_partition("/dev/block/bootdevice/by-name/system", "%d" ) || '
-                       'abort("Failed to copy system FDE image!");') % system_image_size);
 
   if OPTIONS.nad_update:
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
@@ -1916,6 +1934,11 @@ endif;
       script_mirror.AppendExtra('');
       script_mirror.AddToZipMirror(source_zip, output_zip)
 
+  if OPTIONS.nad_fde:
+    script.AppendExtra('close_inactive_dmcrypt_device("rootfs") || '
+                       'abort("Failed to close_inactive_dmcrypt_device for rootfs!");');
+    script.AppendExtra('');
+
   if OPTIONS.nad_update:
     script.AppendExtra('');
     script.AppendExtra('set_inactive_slot_as_active() || '
@@ -1923,6 +1946,9 @@ endif;
     script.AppendExtra('');
     script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
                        'abort("Failed to remove mtdblock dlkm!");');
+    script.AppendExtra('');
+    script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
+                       'abort("Failed to remove gluebi dlkm!");');
     script.AppendExtra('');
 
     if modem_ubifs_vol_update:

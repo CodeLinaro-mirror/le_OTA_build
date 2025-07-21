@@ -16,7 +16,7 @@ import copy
 import errno
 import getopt
 import getpass
-import imp
+import importlib.util
 import os
 import platform
 import re
@@ -610,14 +610,26 @@ def UnSquahfsTemp(filename, partition=None):
   print(" extracted to path  %s" % (tmp),)
 
   version = []
-  if partition == "system" or partition == "lxcrootfs":
+  if partition == "system":
     #path = os.path.join(tmp, *fn.split("/"))
-    path = os.path.join(tmp, "etc/version")
+    path = os.path.join(tmp, "etc/timestamp")
     print(" read from file %s" % (path),)
     try:
       with open(path) as f:
         s = f.read()
-        print (" etc/version  %s" % (s),)
+        print (" etc/timestamp  %s" % (s),)
+        version = s
+      return version
+    except ValueError:
+      print (" could not find any version for %s" % (partition),)
+      return ""
+  elif partition == "lxcrootfs":
+    path = os.path.join(tmp, "etc/timestamp")
+    print(" read from file %s" % (path),)
+    try:
+      with open(path) as f:
+        s = f.read()
+        print (" etc/timestamp  %s" % (s),)
         version = s
       return version
     except ValueError:
@@ -1220,23 +1232,32 @@ class DeviceSpecificParams(object):
       setattr(self, k, v)
     self.extras = OPTIONS.extras
 
+    def load_module(module_name, path):
+      spec = importlib.util.spec_from_file_location(module_name, path)
+      if spec is None:
+        raise ImportError(f"Module {module_name} not found at {path}")
+      module = importlib.util.module_from_spec(spec)
+      spec.loader.exec_module(module)
+      return module
+
     if self.module is None:
       path = OPTIONS.device_specific
       if not path:
         return
       try:
         if os.path.isdir(path):
-          info = imp.find_module("releasetools", [path])
+          releasetools_path = os.path.join(path, "releasetools.py")
+          self.module = load_module("releasetools", path)
         else:
           d, f = os.path.split(path)
           b, x = os.path.splitext(f)
           if x == ".py":
             f = b
-          info = imp.find_module(f, [d])
-        print(("loaded device-specific extensions from", path))
-        self.module = imp.load_module("device_specific", *info)
+          module_path = os.path.join(d, f"{f}.py")
+          self.module = load_module(f, module_path)
+        print(f"loaded device-specific extensions from {path}")
       except ImportError:
-        print ("unable to load device-specific module; assuming none")
+        print("unable to load device-specific module; assuming none")
 
   def _DoCall(self, function_name, *args, **kwargs):
     """Call the named function in the device-specific module, passing

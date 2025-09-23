@@ -217,7 +217,7 @@ class HeapItem(object):
   def clear(self):
     self.item = None
   def __bool__(self):
-    return self.item is None
+    return self.item is not None
   def __eq__(self, other):
     return self.score == other.score
   def __le__(self, other):
@@ -773,7 +773,7 @@ class BlockImageDiff(object):
         print(("Computing patches (using %d threads)..." % (self.threads,)))
       else:
         print("Computing patches...")
-      diff_q.sort()
+      diff_q.sort(key=lambda x:x[0])
 
       patches = [None] * patch_num
 

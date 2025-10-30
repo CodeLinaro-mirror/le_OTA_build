@@ -913,13 +913,13 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       script.AppendExtra('set_inactive_slot_as_unbootable() || '
                          'abort("Failed to set inactive slot as unbootable!");');
       script.AppendExtra('');
-      if not OPTIONS.device_type == "MTD":
-        script.Print("Copying blocks of all A/B partitions "
-                     "(except system & boot) from active to inactive slots...")
-        script.AppendExtra(('copy_all_source_partitions_except("system,boot,vendor_boot,dtbo") || '
-                            'abort("E%d: Failed to copy all partitions from '
-                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
-        script.AppendExtra('');
+      #if not OPTIONS.device_type == "MTD":
+      #  script.Print("Copying blocks of all A/B partitions "
+      #               "(except system & boot) from active to inactive slots...")
+      #  script.AppendExtra(('copy_all_source_partitions_except("system,boot,vendor_boot,dtbo") || '
+      #                      'abort("E%d: Failed to copy all partitions from '
+      #                      'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      #  script.AppendExtra('');
       if OPTIONS.device_type == "MTD":
         script.AppendExtra('');
         script.AppendExtra('scan_mtd_partitions() || '
@@ -1180,6 +1180,21 @@ endif;
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
+    script.AppendExtra('set_hlos_state_machine("3","0") || '
+                       'abort("Failed to set hlos state machine!");');
+    script.AppendExtra('');
+
+    if OPTIONS.mirror_sync:
+      print (" include mirrorscript ")
+      script_mirror = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+      script_mirror.AppendExtra('');
+      script_mirror.Print("Copying  all images"
+                   " from active to inactive slots...")
+      script_mirror.AppendExtra(('copy_all_source_partitions_except("system,efi") || '
+                            'abort("E%d: Failed to copy all partitions from '
+                            'active to inactive slot");') % (ErrorCode.SOURCE_COPY_FAILURE))
+      script_mirror.AppendExtra('');
+      script_mirror.AddToZipMirror(input_zip, output_zip)
 
   if OPTIONS.nad_fde:
     script.AppendExtra('close_inactive_dmcrypt_device("rootfs") || '
@@ -2940,6 +2955,8 @@ def main(argv):
       OPTIONS.payload_signer_args = shlex.split(a)
     elif o == "--system_mount_path":
       OPTIONS.system_mount_path = a
+    elif o == "--mirror_sync":
+      OPTIONS.mirror_sync = True
     elif o == "--pre_version_check":
       OPTIONS.pre_version_check = True
     else:
@@ -2977,6 +2994,7 @@ def main(argv):
                                  "payload_signer=",
                                  "payload_signer_args=",
                                  "system_mount_path=",
+                                 "mirror_sync",
                                  "pre_version_check"
                              ], extra_option_handler=option_handler)
 

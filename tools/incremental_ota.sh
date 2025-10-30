@@ -85,6 +85,7 @@ export FSCONFIGFOPTS=" "
 block_based=" "
 python_version="python3"
 system_path=" "
+mirror_sync=" "
 pre_version_check=" "
 
 if [ "$#" -gt 5 ]; then
@@ -97,6 +98,8 @@ if [ "$#" -gt 5 ]; then
            system_path="${allopts[${i}]}"
        elif [ "${allopts[${i}]}" = "--sign" ]; then
            sign_ota_package="${allopts[${i}]}"
+       elif [ "${allopts[${i}]}" = "--mirror_sync" ]; then
+           mirror_sync="${allopts[${i}]}"
        elif [ "${allopts[${i}]}" = "--pre_version_check" ]; then
            pre_version_check="${allopts[${i}]}"
        else
@@ -136,7 +139,7 @@ fi
 
 cd $target_files && zip -q $2 META/*filesystem_config.txt SYSTEM/build.prop && cd ..
 
-$python_version ./ota_from_target_files $block_based $pre_version_check -n -v -d $device_type -v -p . -m linux_embedded --no_signing --system_mount_path $system_path -i $1 $2 update_incr_$4.zip > ota_debug.txt 2>&1
+$python_version ./ota_from_target_files $block_based $mirror_sync $pre_version_check -n -v -d $device_type -v -p . -m linux_embedded --no_signing --system_mount_path $system_path -i $1 $2 update_incr_$4.zip > ota_debug.txt 2>&1
 
 if [[ $? = 0 ]]; then
     echo "OTA zip signing started"

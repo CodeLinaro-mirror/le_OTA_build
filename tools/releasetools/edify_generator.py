@@ -418,6 +418,14 @@ class EdifyGenerator(object):
     common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-post-install-script",
                        "\n".join(self.script) + "\n")
 
+  def AddToZipMirror(self, input_zip, output_zip):
+    """Write updater-mirror-script which is used to copy active images
+    to inactive partitions  """
+
+    self.UnmountAll()
+    common.ZipWriteStr(output_zip, "META-INF/com/google/android/updater-mirror-script",
+                       "\n".join(self.script) + "\n")
+
   def AddToZip(self, input_zip, output_zip, input_path=None):
     """Write the accumulated script to the output_zip file.  input_zip
     is used as the source for the 'updater' binary needed to run

@@ -1403,6 +1403,8 @@ class BlockDifference(object):
 
     if system_mount_point == '/':
       partition = ''
+    if system_mount_point == '/overlay':
+      partition = 'overlay'
 
     if src is None:
       _, self.device = GetTypeAndDevice("/" + partition, OPTIONS.info_dict)

@@ -178,6 +178,7 @@ OPTIONS.two_step = False
 OPTIONS.no_signing = False
 OPTIONS.block_based = False
 OPTIONS.img_by_img = False
+OPTIONS.systemrw_update = False
 OPTIONS.ubuntu_based = False
 OPTIONS.updater_binary = None
 OPTIONS.oem_source = None
@@ -645,7 +646,7 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  assert which in ("system", "vendor")
+  assert which in ("system", "vendor", "systemrw")
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
@@ -675,6 +676,9 @@ def GetImage(which, tmpdir, info_dict):
           tmpdir, info_dict, block_list=mappath)
     elif which == "vendor":
       path = add_img_to_target_files.BuildVendor(
+          tmpdir, info_dict, block_list=mappath)
+    elif which == "systemrw":
+      path = add_img_to_target_files.BuildSystemrw(
           tmpdir, info_dict, block_list=mappath)
 
   # Bug: http://b/20939131
@@ -828,7 +832,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
-
+        if not OPTIONS.ab_ota_update and OPTIONS.systemrw_update:
+            systemrw_tgt = GetImage("systemrw", OPTIONS.input_tmp, OPTIONS.info_dict)
+            systemrw_tgt.ResetFileMap()
+            systemrw_diff = common.BlockDifference("systemrw", "/overlay", systemrw_tgt, src=None)
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
     # In case of full OTA, do not copy system and boot
@@ -857,6 +864,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     #the system if system.img is not mentioned in images_to_upgrade.txt
     if (not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC") and ((img_by_img and "system.img" in images_to_upgrade) or not img_by_img):
       system_diff.WriteScript(script, output_zip)
+      if not OPTIONS.ab_ota_update and OPTIONS.systemrw_update:
+        systemrw_diff.WriteScript(script, output_zip)
   else:
     if not dm_verity_nand:
       script.FormatPartition(OPTIONS.system_mount_path)
@@ -953,6 +962,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       common.ZipWriteStr(output_zip, "system.img", system_img.data)
       script.AppendExtra('update_rootfs_ubi_volume() || '
                        'abort("Failed to update rootfs ubi volume!");')
+      if OPTIONS.systemrw_update:
+        script.AppendExtra('delete_systemrw_ubi_volume() || '
+                         'abort("Failed to delete systemrw ubi volume!");')
+
 
   script.ShowProgress(0.2, 10)
   device_specific.FullOTA_InstallEnd()
@@ -2386,6 +2399,8 @@ def main(argv):
       OPTIONS.block_based = True
     elif o == "--img_by_img":
       OPTIONS.img_by_img = True
+    elif o == "--systemrw_update":
+      OPTIONS.systemrw_update = True
     elif o == "--ubuntu":
       OPTIONS.ubuntu_based = True
     elif o in ("-b", "--binary"):
@@ -2437,6 +2452,7 @@ def main(argv):
                                  "no_signing",
                                  "block",
                                  "img_by_img",
+                                 "systemrw_update",
                                  "ubuntu",
                                  "binary=",
                                  "oem_settings=",

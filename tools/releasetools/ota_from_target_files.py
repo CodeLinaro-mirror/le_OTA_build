@@ -571,7 +571,8 @@ def HasModemSquashImage(target_files_zip):
 # if this file is present, telaf will be included in update package
 def HasTelafSquashImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
-  return ("IMAGES/telaf.img" in namelist)
+  #return ("IMAGES/telaf.img" in namelist)
+  return
 
 # enable nonhlos.ubifs full update on firmware volume
 def HasModemUbifsImage(target_files_zip):
@@ -959,10 +960,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
-        system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
         if vendor_dlkm_exist:
             vdlkm_diff.WriteScript(script, output_zip)
         if OPTIONS.nad_update:
+          system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
           if system_image_version:

@@ -1475,7 +1475,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
     # check if incremental boot is enabled
     has_incremental_boot = HasIncrementalBoot(source_zip)
-    print (" has_incremental_boot: %s ") % (has_incremental_boot)
+    print ((" has_incremental_boot: %s ") % (has_incremental_boot))
 
     # MTD devices usually have low free space in cache,
     # so disable incremental upgrade of boot.img on MTD

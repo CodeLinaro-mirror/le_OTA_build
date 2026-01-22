@@ -571,7 +571,8 @@ def HasModemSquashImage(target_files_zip):
 # if this file is present, telaf will be included in update package
 def HasTelafSquashImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
-  return ("IMAGES/telaf.img" in namelist)
+  #return ("IMAGES/telaf.img" in namelist)
+  return
 
 # enable nonhlos.ubifs full update on firmware volume
 def HasModemUbifsImage(target_files_zip):
@@ -676,7 +677,9 @@ def WriteFullOTAPackage(input_zip, output_zip):
   # change very often. Similarly for fstab, it might have changed
   # in the target build.
   script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
-  updater_post_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+  if OPTIONS.nad_update:
+    updater_pre_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+    updater_post_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
 
   oem_props = OPTIONS.info_dict.get("oem_fingerprint_properties")
   recovery_mount_options = OPTIONS.info_dict.get("recovery_mount_options")
@@ -926,24 +929,29 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if OPTIONS.nad_update:
       script.AppendExtra('');
-      script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
+      script.AppendExtra('run_program("/usr/bin/busybox","modprobe","gluebi") || '
                          'abort("Failed to insert gluebi dlkm!");');
       script.AppendExtra('');
-
-      script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+      script.AppendExtra('run_program("/usr/bin/busybox","modprobe","mtdblock") || '
                          'abort("Failed to insert mtdblock dlkm!");');
       script.AppendExtra('');
-      updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
-                                              'abort("Failed to insert gluebi dlkm!");');
-      updater_post_install_script.AppendExtra('');
-      updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
-                         'abort("Failed to insert mtdblock dlkm!");');
-      updater_post_install_script.AppendExtra('');
-
       script.AppendExtra('scan_mtd_partitions() || '
                      'abort("Failed to scan mtd partitions!");');
       script.AppendExtra('');
 
+      updater_pre_install_script.AppendExtra('');
+      updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","gluebi") || '
+                                              'abort("Failed to insert gluebi dlkm!");');
+      updater_pre_install_script.AppendExtra('');
+      updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","mtdblock") || '
+                                              'abort("Failed to insert mtdblock dlkm!");');
+
+      updater_post_install_script.AppendExtra('');
+      updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","gluebi") || '
+                                              'abort("Failed to insert gluebi dlkm!");');
+      updater_post_install_script.AppendExtra('');
+      updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","mtdblock") || '
+                                              'abort("Failed to insert mtdblock dlkm!");');
     if OPTIONS.nad_fde:
       script.AppendExtra('setup_inactive_dmcrypt_device("rootfs") || '
                          'abort("Failed to setup_inactive_dmcrypt_device for rootfs!");');
@@ -952,18 +960,15 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
 
     if not OPTIONS.ubuntu_based:
         system_diff.WriteScript(script, output_zip)
-        system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
         if vendor_dlkm_exist:
             vdlkm_diff.WriteScript(script, output_zip)
         if OPTIONS.nad_update:
+          system_diff.WritePostInstallScript(updater_post_install_script, output_zip)
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                          'abort("Failed to erase blocks in system volume!");') % system_image_size);
           if system_image_version:
-            script_pre_check = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
-            script_pre_check.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
-                         'abort("Failed to insert mtdblock dlkm!");');
-            script_pre_check.AppendExtra('');
-            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
+            updater_pre_install_script.AppendExtra('');
+            updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
                            'abort("Failed to validate pre check version for system image !");') % system_image_version);
             print(" print system_image_version : %s" % (system_image_version))
             f = open("image_versions.txt", "w")
@@ -984,8 +989,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                          'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
           if lxcrootfs_image_version:
-            script_pre_check.AppendExtra('');
-            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+            updater_pre_install_script.AppendExtra('');
+            updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                            'abort("Failed to validate pre check version for lxcrootfs image !");') % lxcrootfs_image_version);
             try:
               f = open("image_versions.txt", "a")
@@ -1008,8 +1013,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                          'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
           if modem_image_version:
-            script_pre_check.AppendExtra('');
-            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+            updater_pre_install_script.AppendExtra('');
+            updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                            'abort("Failed to validate pre check version for firmware image !");') % modem_image_version);
             f = open("image_versions.txt", "a")
             f.write("firmware : " + str(modem_image_version) + "\n")
@@ -1024,8 +1029,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
           script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                          'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
           if telaf_image_version :
-            script_pre_check.AppendExtra('');
-            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+            updater_pre_install_script.AppendExtra('');
+            updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                            'abort("Failed to validate pre check version for telaf image !");') % telaf_image_version);
             f = open("image_versions.txt", "a")
             f.write("telaf : " + str(telaf_image_version))
@@ -1034,13 +1039,6 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
             telaf_data = f.read()
             f.close()
             common.ZipWriteStr(output_zip, "image_versions", telaf_data)
-        updater_post_install_script.AppendExtra('');
-        updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
-                       'abort("Failed to remove mtdblock dlkm!");');
-        updater_post_install_script.AppendExtra('');
-        updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
-                                                'abort("Failed to remove gluebi dlkm!");');
-        updater_post_install_script.AddToZipPostInstall(input_zip, output_zip)
 
   else:
     if not dm_verity_nand:
@@ -1200,17 +1198,31 @@ endif;
     script.AppendExtra('');
     print (" set inactive to active slot ")
     script.AppendExtra('');
-    script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+    script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","mtdblock") || '
                        'abort("Failed to remove mtdblock dlkm!");');
     script.AppendExtra('');
-    script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
+    script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","gluebi") || '
                        'abort("Failed to remove gluebi dlkm!");');
     script.AppendExtra('');
     script.Print("NAD update success...")
-    script_pre_check.AppendExtra('');
-    script_pre_check.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
-                      'abort("Failed to remove mtdblock dlkm!");');
-    script_pre_check.AddToZipPreCheckVersion(input_zip, output_zip)
+
+    updater_pre_install_script.AppendExtra('');
+    updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","mtdblock") || '
+                                              'abort("Failed to remove mtdblock dlkm!");');
+    updater_pre_install_script.AppendExtra('');
+    updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","gluebi") || '
+                                              'abort("Failed to remove gluebi dlkm!");');
+
+    updater_post_install_script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","mtdblock") || '
+                                              'abort("Failed to remove mtdblock dlkm!");');
+    updater_post_install_script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","gluebi") || '
+                                              'abort("Failed to remove gluebi dlkm!");');
+
+    updater_pre_install_script.AddToZipPreCheckVersion(input_zip, output_zip)
+    updater_post_install_script.AddToZipPostInstall(input_zip, output_zip)
+
 
   script.SetProgress(1)
   script.AddToZip(input_zip, output_zip, input_path=OPTIONS.updater_binary)
@@ -1280,7 +1292,8 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
       fstab=OPTIONS.source_info_dict["fstab"])
 
   if OPTIONS.nad_update:
-      updater_post_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+    updater_pre_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
+    updater_post_install_script = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
 
   oem_props = OPTIONS.info_dict.get("oem_fingerprint_properties")
   recovery_mount_options = OPTIONS.source_info_dict.get(
@@ -1608,21 +1621,29 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
 
   if OPTIONS.nad_update:
     script.AppendExtra('');
-    script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
+    script.AppendExtra('run_program("/usr/bin/busybox","modprobe","gluebi") || '
                        'abort("Failed to insert gluebi dlkm!");');
     script.AppendExtra('');
-    script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
+    script.AppendExtra('run_program("/usr/bin/busybox","modprobe","mtdblock") || '
                        'abort("Failed to insert mtdblock dlkm!");');
     script.AppendExtra('');
-    updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","gluebi") || '
-                                            'abort("Failed to insert gluebi dlkm!");');
-    updater_post_install_script.AppendExtra('');
-    updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
-                                            'abort("Failed to insert mtdblock dlkm!");');
-    updater_post_install_script.AppendExtra('');
     script.AppendExtra('scan_mtd_partitions() || '
                    'abort("Failed to scan mtd partitions!");');
     script.AppendExtra('');
+
+    updater_pre_install_script.AppendExtra('');
+    updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","gluebi") || '
+                                            'abort("Failed to insert gluebi dlkm!");');
+    updater_pre_install_script.AppendExtra('');
+    updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","mtdblock") || '
+                                            'abort("Failed to insert mtdblock dlkm!");');
+
+    updater_post_install_script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","gluebi") || '
+                                            'abort("Failed to insert gluebi dlkm!");');
+    updater_post_install_script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","mtdblock") || '
+                                            'abort("Failed to insert mtdblock dlkm!");');
 
   if OPTIONS.nad_fde:
     script.AppendExtra('setup_inactive_dmcrypt_device("rootfs") || '
@@ -1751,11 +1772,8 @@ else
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/system", "%d" ) || '
                      'abort("Failed to erase blocks in system volume!");') % system_image_size);
     if system_image_version:
-            script_pre_check = edify_generator.EdifyGenerator(3, OPTIONS.info_dict)
-            script_pre_check.AppendExtra('run_program("/sbin/modprobe","mtdblock") || '
-                                         'abort("Failed to insert mtdblock dlkm!");');
-            script_pre_check.AppendExtra('');
-            script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
+            updater_pre_install_script.AppendExtra('');
+            updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/system", "%d" ) || '
                            'abort("Failed to validate pre check version for system image !");') % system_image_version);
             print(" print system_image_version : %s" % (system_image_version))
             try:
@@ -1780,8 +1798,8 @@ else
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                      'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
     if modem_image_version:
-      script_pre_check.AppendExtra('');
-      script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+      updater_pre_install_script.AppendExtra('');
+      updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                            'abort("Failed to validate pre check version for firmware image !");') % modem_image_version);
       try:
           f = open("image_versions.txt", "a")
@@ -1806,8 +1824,8 @@ else
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                      'abort("Failed to erase blocks in telaf volume!");') % telaf_image_size);
     if telaf_image_version :
-      script_pre_check.AppendExtra('');
-      script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
+      updater_pre_install_script.AppendExtra('');
+      updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/telaf", "%d" ) || '
                            'abort("Failed to validate pre check version for telaf image !");') % telaf_image_version);
       try:
           f = open("image_versions.txt", "a")
@@ -1839,8 +1857,8 @@ else
     script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                      'abort("Failed to erase blocks in lxcrootfs volume!");') % lxcrootfs_image_size);
     if lxcrootfs_image_version:
-      script_pre_check.AppendExtra('');
-      script_pre_check.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
+      updater_pre_install_script.AppendExtra('');
+      updater_pre_install_script.AppendExtra(('pre_check_version("/dev/block/bootdevice/by-name/lxcrootfs", "%d" ) || '
                      'abort("Failed to validate pre check version for lxcrootfs image !");') % lxcrootfs_image_version);
       try:
         f = open("image_versions.txt", "a")
@@ -1861,15 +1879,6 @@ else
     vendor_diff.WriteScript(script, output_zip, progress=0.1)
   if vendor_dlkm_exist and vdlkm_diff:
     vdlkm_diff.WriteScript(script, output_zip, progress=0.1)
-
-  if OPTIONS.nad_update:
-    updater_post_install_script.AppendExtra('');
-    updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
-                       'abort("Failed to remove mtdblock dlkm!");');
-    updater_post_install_script.AppendExtra('');
-    updater_post_install_script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
-                                            'abort("Failed to remove gluebi dlkm!");');
-    updater_post_install_script.AddToZipPostInstall(target_zip, output_zip)
 
   if OPTIONS.two_step:
     common.ZipWriteStr(output_zip, "boot.img", target_boot.data)
@@ -1945,10 +1954,10 @@ endif;
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
     script.AppendExtra('');
-    script.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
+    script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","mtdblock") || '
                        'abort("Failed to remove mtdblock dlkm!");');
     script.AppendExtra('');
-    script.AppendExtra('run_program("/sbin/modprobe","-r","gluebi") || '
+    script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","gluebi") || '
                        'abort("Failed to remove gluebi dlkm!");');
     script.AppendExtra('');
 
@@ -1959,10 +1968,23 @@ endif;
                         'abort("Failed to write modem ubifs image!");');
       script.AppendExtra('');
     script.Print("NAD update success...")
-    script_pre_check.AppendExtra('');
-    script_pre_check.AppendExtra('run_program("/sbin/modprobe","-r","mtdblock") || '
-                      'abort("Failed to remove mtdblock dlkm!");');
-    script_pre_check.AddToZipPreCheckVersion(target_zip, output_zip)
+
+    updater_pre_install_script.AppendExtra('');
+    updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","mtdblock") || '
+                                              'abort("Failed to remove mtdblock dlkm!");');
+    updater_pre_install_script.AppendExtra('');
+    updater_pre_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","gluebi") || '
+                                              'abort("Failed to remove gluebi dlkm!");');
+
+    updater_post_install_script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","mtdblock") || '
+                                              'abort("Failed to remove mtdblock dlkm!");');
+    updater_post_install_script.AppendExtra('');
+    updater_post_install_script.AppendExtra('run_program("/usr/bin/busybox","modprobe","-r","gluebi") || '
+                                              'abort("Failed to remove gluebi dlkm!");');
+
+    updater_pre_install_script.AddToZipPreCheckVersion(target_zip, output_zip)
+    updater_post_install_script.AddToZipPostInstall(target_zip, output_zip)
 
   script.SetProgress(1)
   # For downgrade OTAs, we prefer to use the update-binary in the source

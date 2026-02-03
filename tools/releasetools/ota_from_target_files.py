@@ -571,7 +571,8 @@ def HasModemSquashImage(target_files_zip):
 # if this file is present, telaf will be included in update package
 def HasTelafSquashImage(target_files_zip):
   namelist = [name for name in target_files_zip.namelist()]
-  return ("IMAGES/telaf.img" in namelist)
+  #return ("IMAGES/telaf.img" in namelist)
+  return
 
 # enable nonhlos.ubifs full update on firmware volume
 def HasModemUbifsImage(target_files_zip):

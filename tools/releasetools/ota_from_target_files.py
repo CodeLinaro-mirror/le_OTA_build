@@ -178,6 +178,7 @@ OPTIONS.two_step = False
 OPTIONS.no_signing = False
 OPTIONS.block_based = False
 OPTIONS.img_by_img = False
+OPTIONS.systemrw_update = False
 OPTIONS.ubuntu_based = False
 OPTIONS.updater_binary = None
 OPTIONS.oem_source = None
@@ -645,7 +646,7 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  assert which in ("system", "vendor")
+  assert which in ("system", "vendor", "systemrw")
 
   path = os.path.join(tmpdir, "IMAGES", which + ".img")
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
@@ -675,6 +676,9 @@ def GetImage(which, tmpdir, info_dict):
           tmpdir, info_dict, block_list=mappath)
     elif which == "vendor":
       path = add_img_to_target_files.BuildVendor(
+          tmpdir, info_dict, block_list=mappath)
+    elif which == "systemrw":
+      path = add_img_to_target_files.BuildSystemrw(
           tmpdir, info_dict, block_list=mappath)
 
   # Bug: http://b/20939131
@@ -721,6 +725,38 @@ def WriteFullOTAPackage(input_zip, output_zip):
                                    OPTIONS.info_dict),
       "post-timestamp": GetBuildProp("ro.build.date.utc", OPTIONS.info_dict),
   }
+  # Check for volume modifications configuration
+  try:
+    config_data = input_zip.read("META/lvm_conf.json")
+    import json
+    config = json.loads(config_data)
+
+    # Check if any volume modification operations are present
+    volume_modification_required = "NO"
+    if (config.get("delete") and len(config["delete"]) > 0) or \
+       (config.get("resize") and len(config["resize"]) > 0) or \
+       (config.get("create") and len(config["create"]) > 0) or \
+       (config.get("update") and len(config["update"]) > 0):
+      volume_modification_required = "YES"
+
+    metadata["volume-modication-required"] = volume_modification_required
+    # Identify A/B volumes from update section
+    ab_volumes = []
+    if config.get("update"):
+      for vol in config["update"]:
+        vol_name = vol.get("volume_name", "")
+        if vol_name.endswith("_a") or vol_name.endswith("_b"):
+          # Store the base volume name (without the _a/_b suffix)
+          base_name = vol_name[:-2]  # Remove last 2 characters
+          if base_name not in ab_volumes:
+            ab_volumes.append(base_name)
+
+    # Store A/B volumes list in metadata as comma-separated string
+    metadata["ab-volumes"] = ",".join(ab_volumes) if ab_volumes else "NONE"
+  except (KeyError, ValueError, RuntimeError, zipfile.BadZipfile):
+    # File doesn't exist or is invalid JSON, default to "NO"
+    metadata["volume-modication-required"] = "NO"
+    metadata["ab-volumes"] = "NONE"
 
   device_specific = common.DeviceSpecificParams(
       input_zip=input_zip,
@@ -828,7 +864,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         system_tgt = GetImage("system", OPTIONS.input_tmp, OPTIONS.info_dict)
         system_tgt.ResetFileMap()
         system_diff = common.BlockDifference("system", OPTIONS.system_mount_path, system_tgt, src=None)
-
+        if not OPTIONS.ab_ota_update and OPTIONS.systemrw_update:
+            systemrw_tgt = GetImage("systemrw", OPTIONS.input_tmp, OPTIONS.info_dict)
+            systemrw_tgt.ResetFileMap()
+            systemrw_diff = common.BlockDifference("systemrw", "/overlay", systemrw_tgt, src=None)
     # On A/B targets, first copy all the blocksi from
     # active to inactive slot for all A/B partitions
     # In case of full OTA, do not copy system and boot
@@ -857,6 +896,8 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
     #the system if system.img is not mentioned in images_to_upgrade.txt
     if (not OPTIONS.ubuntu_based and OPTIONS.device_type == "MMC") and ((img_by_img and "system.img" in images_to_upgrade) or not img_by_img):
       system_diff.WriteScript(script, output_zip)
+      if not OPTIONS.ab_ota_update and OPTIONS.systemrw_update:
+        systemrw_diff.WriteScript(script, output_zip)
   else:
     if not dm_verity_nand:
       script.FormatPartition(OPTIONS.system_mount_path)
@@ -953,6 +994,10 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
       common.ZipWriteStr(output_zip, "system.img", system_img.data)
       script.AppendExtra('update_rootfs_ubi_volume() || '
                        'abort("Failed to update rootfs ubi volume!");')
+      if OPTIONS.systemrw_update:
+        script.AppendExtra('delete_systemrw_ubi_volume() || '
+                         'abort("Failed to delete systemrw ubi volume!");')
+
 
   script.ShowProgress(0.2, 10)
   device_specific.FullOTA_InstallEnd()
@@ -1099,6 +1144,40 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   }
   metadata["system_image_size"] = OPTIONS.target_info_dict["system_image_size"]
   metadata["boot_image_size"] = OPTIONS.target_info_dict["boot_image_size"]
+
+  # Check for volume modifications configuration
+  try:
+    config_data = input_zip.read("META/lvm_conf.json")
+    import json
+    config = json.loads(config_data)
+
+    # Check if any volume modification operations are present
+    volume_modification_required = "NO"
+    if (config.get("delete") and len(config["delete"]) > 0) or \
+       (config.get("resize") and len(config["resize"]) > 0) or \
+       (config.get("create") and len(config["create"]) > 0) or \
+       (config.get("update") and len(config["update"]) > 0):
+      volume_modification_required = "YES"
+
+    metadata["volume-modication-required"] = volume_modification_required
+    # Identify A/B volumes from update section
+    ab_volumes = []
+    if config.get("update"):
+      for vol in config["update"]:
+        vol_name = vol.get("volume_name", "")
+        if vol_name.endswith("_a") or vol_name.endswith("_b"):
+          # Store the base volume name (without the _a/_b suffix)
+          base_name = vol_name[:-2]  # Remove last 2 characters
+          if base_name not in ab_volumes:
+            ab_volumes.append(base_name)
+
+    # Store A/B volumes list in metadata as comma-separated string
+    metadata["ab-volumes"] = ",".join(ab_volumes) if ab_volumes else "NONE"
+  except (KeyError, ValueError, RuntimeError, zipfile.BadZipfile):
+    # File doesn't exist or is invalid JSON, default to "NO"
+    metadata["volume-modication-required"] = "NO"
+    metadata["ab-volumes"] = "NONE"
+
   post_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.target_info_dict)
   pre_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.source_info_dict)
   is_downgrade = False
@@ -2386,6 +2465,8 @@ def main(argv):
       OPTIONS.block_based = True
     elif o == "--img_by_img":
       OPTIONS.img_by_img = True
+    elif o == "--systemrw_update":
+      OPTIONS.systemrw_update = True
     elif o == "--ubuntu":
       OPTIONS.ubuntu_based = True
     elif o in ("-b", "--binary"):
@@ -2437,6 +2518,7 @@ def main(argv):
                                  "no_signing",
                                  "block",
                                  "img_by_img",
+                                 "systemrw_update",
                                  "ubuntu",
                                  "binary=",
                                  "oem_settings=",

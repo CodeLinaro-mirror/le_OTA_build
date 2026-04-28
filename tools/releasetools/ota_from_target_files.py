@@ -725,6 +725,38 @@ def WriteFullOTAPackage(input_zip, output_zip):
                                    OPTIONS.info_dict),
       "post-timestamp": GetBuildProp("ro.build.date.utc", OPTIONS.info_dict),
   }
+  # Check for volume modifications configuration
+  try:
+    config_data = input_zip.read("META/lvm_conf.json")
+    import json
+    config = json.loads(config_data)
+
+    # Check if any volume modification operations are present
+    volume_modification_required = "NO"
+    if (config.get("delete") and len(config["delete"]) > 0) or \
+       (config.get("resize") and len(config["resize"]) > 0) or \
+       (config.get("create") and len(config["create"]) > 0) or \
+       (config.get("update") and len(config["update"]) > 0):
+      volume_modification_required = "YES"
+
+    metadata["volume-modication-required"] = volume_modification_required
+    # Identify A/B volumes from update section
+    ab_volumes = []
+    if config.get("update"):
+      for vol in config["update"]:
+        vol_name = vol.get("volume_name", "")
+        if vol_name.endswith("_a") or vol_name.endswith("_b"):
+          # Store the base volume name (without the _a/_b suffix)
+          base_name = vol_name[:-2]  # Remove last 2 characters
+          if base_name not in ab_volumes:
+            ab_volumes.append(base_name)
+
+    # Store A/B volumes list in metadata as comma-separated string
+    metadata["ab-volumes"] = ",".join(ab_volumes) if ab_volumes else "NONE"
+  except (KeyError, ValueError, RuntimeError, zipfile.BadZipfile):
+    # File doesn't exist or is invalid JSON, default to "NO"
+    metadata["volume-modication-required"] = "NO"
+    metadata["ab-volumes"] = "NONE"
 
   device_specific = common.DeviceSpecificParams(
       input_zip=input_zip,
@@ -1112,6 +1144,40 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
   }
   metadata["system_image_size"] = OPTIONS.target_info_dict["system_image_size"]
   metadata["boot_image_size"] = OPTIONS.target_info_dict["boot_image_size"]
+
+  # Check for volume modifications configuration
+  try:
+    config_data = input_zip.read("META/lvm_conf.json")
+    import json
+    config = json.loads(config_data)
+
+    # Check if any volume modification operations are present
+    volume_modification_required = "NO"
+    if (config.get("delete") and len(config["delete"]) > 0) or \
+       (config.get("resize") and len(config["resize"]) > 0) or \
+       (config.get("create") and len(config["create"]) > 0) or \
+       (config.get("update") and len(config["update"]) > 0):
+      volume_modification_required = "YES"
+
+    metadata["volume-modication-required"] = volume_modification_required
+    # Identify A/B volumes from update section
+    ab_volumes = []
+    if config.get("update"):
+      for vol in config["update"]:
+        vol_name = vol.get("volume_name", "")
+        if vol_name.endswith("_a") or vol_name.endswith("_b"):
+          # Store the base volume name (without the _a/_b suffix)
+          base_name = vol_name[:-2]  # Remove last 2 characters
+          if base_name not in ab_volumes:
+            ab_volumes.append(base_name)
+
+    # Store A/B volumes list in metadata as comma-separated string
+    metadata["ab-volumes"] = ",".join(ab_volumes) if ab_volumes else "NONE"
+  except (KeyError, ValueError, RuntimeError, zipfile.BadZipfile):
+    # File doesn't exist or is invalid JSON, default to "NO"
+    metadata["volume-modication-required"] = "NO"
+    metadata["ab-volumes"] = "NONE"
+
   post_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.target_info_dict)
   pre_timestamp = GetBuildProp("ro.build.date.utc", OPTIONS.source_info_dict)
   is_downgrade = False

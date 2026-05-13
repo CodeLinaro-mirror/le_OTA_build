@@ -3021,6 +3021,7 @@ def main(argv):
 
   OPTIONS.nad_update_emmc = OPTIONS.info_dict.get("le_target_supports_nad_emmc", "0") == "1"
   if OPTIONS.nad_update_emmc:
+    OPTIONS.pre_version_check = False
     print ("Including nad emmc support..");
 
   OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"

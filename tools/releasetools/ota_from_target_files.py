@@ -1147,7 +1147,7 @@ def WriteBlockIncrementalOTAPackage(target_zip, source_zip, output_zip):
 
   # Check for volume modifications configuration
   try:
-    config_data = input_zip.read("META/lvm_conf.json")
+    config_data = target_zip.read("META/lvm_conf.json")
     import json
     config = json.loads(config_data)
 

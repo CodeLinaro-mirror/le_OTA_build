@@ -646,6 +646,7 @@ def UnSquahfsTemp(filename, partition=None):
           s = f.read()
           print (" telaf version read from file %s" % (s),)
           version = (s.split("-",1)[1]).split("_",1)[0]
+          version = ''.join(ch for ch in version if ch.isdigit())
           print (" telaf version  %s" % (version),)
           return version
       except ValueError:

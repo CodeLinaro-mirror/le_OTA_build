@@ -188,7 +188,7 @@ OPTIONS.log_diff = None
 OPTIONS.payload_signer = None
 OPTIONS.payload_signer_args = []
 OPTIONS.system_mount_path = '/system'
-OPTIONS.pre_version_check = False
+OPTIONS.pre_version_check = True
 OPTIONS.mirror_sync = False
 
 def MostPopularKey(d, default):

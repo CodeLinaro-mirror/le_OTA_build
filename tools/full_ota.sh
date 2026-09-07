@@ -72,6 +72,7 @@ if [ "$#" -lt 4 ]; then
     echo "example: $0 target_files_ext4.zip machine_image/1.0-r0/rootfs ext4 --system_path <path>"
     echo "example: $0 target_files_ext4.zip machine_image/1.0-r0/rootfs ext4  -p system/ -c fsconfig.conf --block --system_path <path>"
     echo "example: $0 target_files_ext4.zip machine_image/1.0-r0/rootfs ext4 --sign"
+    echo "example: $0 target_files_ext4.zip machine_image/1.0-r0/rootfs ext4 --sign-whole-file"
     exit 1
 fi
 
@@ -88,6 +89,7 @@ python_version="python3"
 system_path=" "
 cache_location=" "
 sign_ota_package=" "
+sign_ota_whole_file=" "
 
 if [ "$#" -gt 4 ]; then
     IFS=' ' read -a allopts <<< "$@"
@@ -101,6 +103,8 @@ if [ "$#" -gt 4 ]; then
            system_path="${allopts[${i}]}"
        elif [ "${allopts[${i}]}" = "--sign" ]; then
            sign_ota_package="${allopts[${i}]}"
+       elif [ "${allopts[${i}]}" = "--sign-whole-file" ]; then
+           sign_ota_whole_file="${allopts[${i}]}"
        else
            FSCONFIGFOPTS=$FSCONFIGFOPTS${allopts[${i}]}" "
        fi
@@ -141,21 +145,27 @@ fi
 cd $target_files && zip -q $1 META/*filesystem_config.txt SYSTEM/build.prop BOOT/RAMDISK/empty && cd ..
 
 
-$python_version ./ota_from_target_files $block_based $ubuntu -n -v -d $device_type -p . -m linux_embedded --no_signing --system_mount_path $system_path $1 update_$3.zip > ota_debug.txt 2>&1
+signing_args="--no_signing"
+if [ "${sign_ota_whole_file}" = "--sign-whole-file" ]; then
+    signing_args="-k ./security/testkey"
+fi
+
+$python_version ./ota_from_target_files $block_based $ubuntu -n -v -d $device_type -p . -m linux_embedded $signing_args --system_mount_path $system_path $1 update_$3.zip > ota_debug.txt 2>&1
 
 if [[ $? = 0 ]]; then
     if [ "${sign_ota_package}" = "--sign" ]; then
-        # Pipe the contents of OTA zip to openssl to generate the signature of the OTA zip
+        # Legacy signing flow retained for ota-package-verification path.
         unzip -p update_$3.zip | openssl dgst -sha256 -sign private.pem -out update.sig
         if [[ $? = 0 ]]; then
             zip -q -u update_$3.zip update.sig
-            echo "OTA zip signing is successful"
+            echo "OTA zip (legacy unzip-p) signing is successful"
         else
-            echo "OTA zip signing is failed"
-            # Add the python script errors back into the target-files zip
+            echo "OTA zip (legacy unzip-p) signing is failed"
             zip -q $1 ota_debug.txt
             rm update_$3.zip # delete the half-baked update.zip if any;
         fi
+    elif [ "${sign_ota_whole_file}" = "--sign-whole-file" ]; then
+        echo "OTA zip whole-file signing is successful"
     else
         echo "update_$3.zip generation was successful"
     fi

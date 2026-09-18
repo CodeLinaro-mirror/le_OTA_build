@@ -1502,7 +1502,7 @@ class BlockDifference(object):
     if (b.tgt_image_size):
       self.tgt_image_size = b.tgt_image_size
 
-    if system_mount_point == '/':
+    if system_mount_point == '/' and partition != "modem":
       partition = ''
     if system_mount_point == '/lib/modules/':
       partition = 'lib/modules/'

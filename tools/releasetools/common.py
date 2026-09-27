@@ -597,15 +597,22 @@ def UnSquahfsTemp(filename, partition=None):
   OPTIONS.tempfiles.append(tmp)
   print(" using squahfs image %s" % (filename),)
 
-  def unsquahfs_to_dir(filename, dirname):
-    cmd = ["unsquashfs", "-f", "-d",dirname, filename]
-    p = Run(cmd, stdout=subprocess.PIPE)
+  def unsquash_with_permission(cmd, errmsg):
+    kwargs = {"stdout": subprocess.PIPE}
+    p = Run(cmd, **kwargs)
     p.communicate()
     if p.returncode != 0:
-      raise ExternalError("failed to unsquashfs input squashfs  \"%s\"" %
-                          (filename,))
+      raise ExternalError(errmsg)
 
-  unsquahfs_to_dir(filename, tmp)
+  unsquash_with_permission(
+      ["unsquashfs", "-no-xattrs", "-f", "-d", tmp, filename],
+      "failed to unsquashfs input squashfs \"%s\"" % (filename,)
+  )
+
+  unsquash_with_permission(
+      ["chmod", "-R", "u+rw", tmp],
+      "failed to update permissions on directory \"%s\"" % (tmp,)
+  )
 
   print(" extracted to path  %s" % (tmp),)
 
@@ -646,6 +653,7 @@ def UnSquahfsTemp(filename, partition=None):
           s = f.read()
           print (" telaf version read from file %s" % (s),)
           version = (s.split("-",1)[1]).split("_",1)[0]
+          version = ''.join(ch for ch in version if ch.isdigit())
           print (" telaf version  %s" % (version),)
           return version
       except ValueError:
@@ -1502,7 +1510,7 @@ class BlockDifference(object):
     if (b.tgt_image_size):
       self.tgt_image_size = b.tgt_image_size
 
-    if system_mount_point == '/':
+    if system_mount_point == '/' and partition != "modem":
       partition = ''
     if system_mount_point == '/lib/modules/':
       partition = 'lib/modules/'

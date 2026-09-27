@@ -624,7 +624,7 @@ def GetImage(which, tmpdir, info_dict):
   # prebuilt image and file map are found in tmpdir they are used,
   # otherwise they are reconstructed from the individual files.
 
-  if OPTIONS.nad_update:
+  if OPTIONS.nad_update or OPTIONS.nad_update_emmc:
     assert which in ("system", "vendor", "modem", "telaf", "recoveryfs", "vm-bootsys", "lxcrootfs")
   else:
     assert which in ("system", "vendor", "vendor_dlkm")
@@ -633,12 +633,13 @@ def GetImage(which, tmpdir, info_dict):
   mappath = os.path.join(tmpdir, "IMAGES", which + ".map")
 
   partition = info_dict["fstab"][OPTIONS.system_mount_path]
+  is_modem = which == "modem"
   is_squashfs = partition.fs_type == "squashfs"
-  if is_squashfs:
+  if is_squashfs or is_modem:
     # squashfs doesn't support file-block mapping
     mappath = None
 
-  if os.path.exists(path) and (is_squashfs or os.path.exists(mappath)):
+  if os.path.exists(path) and (is_modem or is_squashfs or os.path.exists(mappath)):
     print(("using %s.img from target-files" % (which,)))
     # This is a 'new' target-files, which already has the image in it.
 
@@ -1010,7 +1011,11 @@ else if get_stage("%(bcb_dev)s") == "3/3" then
         if modem_squash_vol_update:
           modem_diff.WriteScript(script, output_zip)
           modem_diff.WritePostInstallScript(updater_post_install_script, output_zip)
-          script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+          if OPTIONS.nad_update_emmc:
+            script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/firmware", "%d" ) || '
+                                'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+          else:
+            script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                          'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
           if modem_image_version:
             updater_pre_install_script.AppendExtra('');
@@ -1794,8 +1799,13 @@ else
   if modem_squash_vol_update and modem_diff:
     modem_diff.WriteScript(script, output_zip,
                           progress=0.8 if vendor_diff else 0.85)
-    modem_diff.WritePostInstallScript(updater_post_install_script, output_zip)
-    script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
+    if OPTIONS.nad_update:
+      modem_diff.WritePostInstallScript(updater_post_install_script, output_zip)
+    if OPTIONS.nad_update_emmc:
+      script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/firmware", "%d" ) || '
+                     'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
+    else:
+      script.AppendExtra(('block_erase("/dev/block/bootdevice/by-name/modem", "%d" ) || '
                      'abort("Failed to erase blocks in firmware volume!");') % modem_image_size);
     if modem_image_version:
       updater_pre_install_script.AppendExtra('');

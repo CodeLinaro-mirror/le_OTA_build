@@ -1610,7 +1610,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                        'abort("Failed to set inactive slot as unbootable!");');
     script.AppendExtra('');
     script.AppendExtra('if_copy_done_cookie_exists'
-                       '("/cache/recovery/AB_COPY_DONE") || (');
+                         '("%s/recovery/AB_COPY_DONE") || (' % CACHE_PATH)
     script.Print("Copying blocks of all A/B partitions "
                  "from active to inactive slots...")
     if not OPTIONS.device_type == "MTD":
@@ -1630,7 +1630,7 @@ else if get_stage("%(bcb_dev)s") != "3/3" then
                          'abort("Failed to copy boot partition to inactive slot!");');
       script.AppendExtra('');
     script.AppendExtra(');');
-    script.AppendExtra('write_copy_done_cookie(/cache/recovery/AB_COPY_DONE);');
+    script.AppendExtra('write_copy_done_cookie(%s/recovery/AB_COPY_DONE);' % CACHE_PATH)
     script.AppendExtra('');
 
   if OPTIONS.nad_update:
@@ -1949,7 +1949,7 @@ endif;
     script.AppendExtra('');
     script.AppendExtra('set_inactive_slot_as_active() || '
                        'abort("Failed to set inactive slot as active!");');
-    script.AppendExtra('delete_copy_done_cookie("/cache/recovery/AB_COPY_DONE");');
+    script.AppendExtra('delete_copy_done_cookie("%s/recovery/AB_COPY_DONE");' % CACHE_PATH)
     script.AppendExtra('');
     if OPTIONS.mirror_sync:
       print (" include mirrorscript ")
@@ -3059,6 +3059,13 @@ def main(argv):
   OPTIONS.nad_fde = OPTIONS.info_dict.get("le_target_supports_nad_fde", "0") == "1"
   if OPTIONS.nad_fde:
     print ("FDE is supported..");
+
+  OPTIONS.var_cache = OPTIONS.info_dict.get("use_var_cache", "0") == "1"
+  if OPTIONS.var_cache:
+    print ("/var/cache is supported..");
+    CACHE_PATH = "/var/cache"
+  else:
+    CACHE_PATH = "/cache"
 
   if ab_update:
     if OPTIONS.incremental_source is not None:
